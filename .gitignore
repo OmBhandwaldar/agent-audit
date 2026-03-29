@@ -42,3 +42,10 @@ htmlcov/
 # Windows
 Thumbs.db
 desktop.ini
+
+# Private keys and certificates
+*.pem
+*.key
+
+# Claude memory (local only)
+.claude/memory/
