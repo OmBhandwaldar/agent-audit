@@ -1,0 +1,26 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+
+# OS
+.DS_Store
+*.log
+
+# Session logs
+sessions/
+
+# Claude local config
+.claude/settings.local.json
