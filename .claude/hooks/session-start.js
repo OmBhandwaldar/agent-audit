@@ -9,11 +9,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const SESSIONS_DIR = path.join(
-  process.env.HOME || process.env.USERPROFILE,
-  ".claude",
-  "sessions"
-);
+const SESSIONS_DIR = path.join(process.cwd(), ".claude", "sessions");
 
 function getLatestSession() {
   if (!fs.existsSync(SESSIONS_DIR)) return null;

@@ -6,18 +6,14 @@
  * If a file for today already exists, updates the Last Updated timestamp only.
  *
  * File naming: YYYY-MM-DD-[shortid]-session.tmp
- * Storage: ~/.claude/sessions/
+ * Storage: .claude/sessions/ (project-local)
  */
 
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const SESSIONS_DIR = path.join(
-  process.env.HOME || process.env.USERPROFILE,
-  ".claude",
-  "sessions"
-);
+const SESSIONS_DIR = path.join(process.cwd(), ".claude", "sessions");
 
 function getDateString() {
   return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
