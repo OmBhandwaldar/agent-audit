@@ -24,3 +24,21 @@ sessions/
 
 # Claude local config
 .claude/settings.local.json
+
+# Compiled contract artifacts
+contracts/artifacts/
+contracts/__pycache__/
+
+# Algokit
+.algokit/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Windows
+Thumbs.db
+desktop.ini
