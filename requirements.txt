@@ -1,0 +1,23 @@
+# Algorand
+py-algorand-sdk==2.11.1
+algokit-utils==4.2.3
+
+# HTTP
+httpx==0.28.1
+
+# API
+fastapi==0.135.2
+uvicorn[standard]==0.42.0
+pydantic==2.12.5
+
+# Utilities
+python-dotenv==1.2.2
+
+# AI Agent (LangChain path — needed when switching from fallback to LangChain)
+langchain
+langchain-openai
+openai
+
+# Testing
+pytest
+pytest-asyncio
