@@ -16,8 +16,8 @@ load_dotenv()
 ALGOD_URL = os.getenv("ALGORAND_NODE_URL", "https://testnet-api.algonode.cloud")
 DEPLOYER_MNEMONIC = os.getenv("DEPLOYER_MNEMONIC")
 
-APPROVAL_TEAL_PATH = "contracts/contracts/artifacts/HelloWorld.approval.teal"
-CLEAR_TEAL_PATH = "contracts/contracts/artifacts/HelloWorld.clear.teal"
+APPROVAL_TEAL_PATH = "contracts/artifacts/HelloWorld.approval.teal"
+CLEAR_TEAL_PATH = "contracts/artifacts/HelloWorld.clear.teal"
 
 
 def get_algod_client() -> algod.AlgodClient:
