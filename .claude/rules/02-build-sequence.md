@@ -24,19 +24,26 @@ Only begin after user confirms Day 5 checkpoint output:
 - IPFS CID returned
 - Algorand TX ID confirmed
 - ASA minted
+- Vendor seed script confirmed working
 
-Frontend is React. Keep it minimal. Three states only: input, loading, result.
+Frontend is React. Four components total: App.jsx, AuditResult.jsx, VerifyAudit.jsx.
+Two tabs: "Run Agent" | "Verify Audit". No routing library needed.
 
 ## Day 5 Checkpoint (Critical Gate)
-Expected terminal output from `python scripts/runFlow.py 3000`:
+Expected terminal output from `python scripts/runFlow.py 3000 VENDOR_001`:
 ```
 ✅ Decision:       approved
 📦 IPFS CID:       Qm...
 ⛓  Algorand TX:    <tx_id>
-📋 Policy Result:  pass
+📋 Policy Result:  amount:pass|vendor:pass
 🧾 ASA Minted:     True
 ```
+Policy result format is now "amount:X|vendor:X" — both must be "pass" for ASA to mint.
 If any line is missing or erroring, stop and fix before moving forward.
+
+After checkpoint passes, run seed_vendors.py to populate the on-chain whitelist:
+`python scripts/seed_vendors.py`
+This must succeed before frontend testing begins.
 
 ## Build Order Within Phase 1
 1. Algokit install + testnet wallet + faucet

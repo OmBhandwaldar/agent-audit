@@ -8,10 +8,17 @@
 - No Redux, no Zustand. useState is enough.
 - Axios or fetch for API calls. No extra HTTP libraries.
 
-## Single Page. Three States Only.
+## Two Tabs
+Tab 1: "Run Agent" — submit a payment for audit
+Tab 2: "Verify Audit" — independently verify any past audit record by action ID
+
+Tab state lives in App.jsx as activeTab ("run" | "verify"). Simple button toggle, no routing library.
+
+## Tab 1 — Run Agent (three states)
 ```
 State 1: Input
   - Number input field (amount in ₹)
+  - Vendor ID text input (placeholder: "e.g. VENDOR_001")
   - "Run Agent" button
   - Nothing else
 
@@ -19,31 +26,47 @@ State 2: Loading
   - Spinner or simple text: "Agent is processing..."
   - Disable button during loading
 
-State 3: Result
+State 3: Result (AuditResult.jsx)
   - Decision badge (green ✅ Approved / red ❌ Rejected)
-  - IPFS CID (clickable → https://ipfs.io/ipfs/{cid})
-  - Algorand TX ID (clickable → https://testnet.explorer.perawallet.app/tx/{tx_id})
-  - Policy Result (Pass / Fail)
-  - ASA Minted (Yes / No)
-  - Timestamp (human readable)
+  - Amount Check: ✅ Pass / ❌ Fail
+  - Vendor Check: ✅ Pass / ❌ Fail
+  - Compliance Receipt: Minted (1 AACR) / Not applicable
+  - IPFS CID (clickable → Pinata gateway)
+  - Algorand TX ID (clickable → testnet explorer)
+  - Action ID (monospace, copyable)
   - "Run Again" button to reset to State 1
 ```
 
-Do not add more UI elements than listed above.
+## Tab 2 — Verify Audit (VerifyAudit.jsx)
+```
+  - Action ID text input
+  - "Verify" button
+  - Loading: "Fetching record from Algorand..."
+  - Result:
+    - ✅ Hash Verified / ❌ Hash Mismatch (prominent, top of card)
+    - IPFS Hash (on-chain)
+    - IPFS Hash (recomputed from fetched data)
+    - Decision, Amount, Vendor ID, Agent ID, Policy Result
+    - Timestamp (human readable)
+    - IPFS CID link
+```
 
 ## API Connection
 - Backend runs at http://localhost:8000
-- Single call: POST /api/audit with body { amount: parseInt(inputValue) }
-- Handle loading state during call
-- Handle error state if call fails (show error message, do not crash)
+- Tab 1: POST /api/audit with body { amount: parseInt(amountInput), vendor_id: vendorInput }
+- Tab 2: GET /api/verify?action_id=<value>
+- Handle loading state during both calls
+- Handle error state if either call fails (show error message, do not crash)
 
 ## Component Structure (keep flat)
 ```
 src/
-├── App.jsx          # All state lives here
-└── AuditResult.jsx  # Receives result as props, renders State 3
+├── App.jsx            # All state + tab toggle lives here
+├── components/
+│   ├── AuditResult.jsx   # Tab 1 result state — receives result as props
+│   └── VerifyAudit.jsx   # Tab 2 — has own local state for input + result
 ```
-Do not create more components than these two for the MVP.
+Do not create more components than these three for the MVP.
 
 ## Styling Rules
 - Functional over beautiful. Clean and readable is enough.

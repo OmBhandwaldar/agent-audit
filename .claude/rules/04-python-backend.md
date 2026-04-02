@@ -17,16 +17,19 @@ agentaudit/
 ├── ipfs/uploader.py           # upload_to_ipfs() only
 ├── algorand/
 │   ├── client.py              # get_algod_client(), get_indexer_client()
-│   └── contract_client.py     # submit_audit(), get_audit_record()
-├── api/main.py                # FastAPI app — POST /api/audit only
-└── scripts/runFlow.py         # Day 5 checkpoint script
+│   └── contract_client.py     # submit_audit(), get_audit_record(), add_vendor()
+├── api/main.py                # FastAPI app — POST /api/audit + GET /api/verify
+├── scripts/
+│   ├── runFlow.py             # Day 5 checkpoint script
+│   └── seed_vendors.py        # Seeds VENDOR_001, VENDOR_002 on-chain after redeploy
 ```
 
 Do not create files outside this structure without flagging it.
 
 ## Core SDK Rules (audit_flow.py)
-- Single entry point: run_audit_flow(amount: int) -> dict
-- Return dict always contains: decision, ipfs_cid, algorand_tx_id, policy_result, asa_minted, action_id
+- Single entry point: run_audit_flow(amount: int, vendor_id: str) -> dict
+- Return dict always contains: decision, ipfs_cid, algorand_tx_id, policy_result, asa_minted, action_id, vendor_id, policy_checks
+- policy_checks is a parsed dict: {"amount_check": "pass"/"fail", "vendor_check": "pass"/"fail"}
 - Import random and use it for action_id generation
 - Do not catch all exceptions silently. Let errors surface with clear messages.
 
@@ -40,6 +43,7 @@ Do not create files outside this structure without flagging it.
   {
     "action": "approve_payment",
     "amount": 3000,
+    "vendor_id": "VENDOR_001",
     "decision": "approved",
     "reason": "...",
     "policy": "limit_5000",
@@ -51,14 +55,17 @@ Do not create files outside this structure without flagging it.
 ## LangChain Agent Rules (payment_agent.py)
 - Use LangChain with one tool: check_payment_policy
 - Keep the fallback function decide_payment() in the same file always
-- Fallback signature: decide_payment(amount: int) -> tuple[str, str]
+- Fallback signature: decide_payment(amount: int, vendor_id: str) -> tuple[str, str]
+- The agent/fallback decides approve/reject based on amount only — vendor check happens on-chain
 - If LangChain is causing issues within 3 days of deadline, switch to fallback without hesitation
 - Never add more tools to the agent
 
 ## FastAPI Rules (api/main.py)
-- One endpoint only: POST /api/audit
-- Request body: { "amount": int }
-- Response: the full dict from run_audit_flow()
+- Two endpoints:
+  - POST /api/audit — request body: { "amount": int, "vendor_id": str }, response: full run_audit_flow() dict
+  - GET /api/verify?action_id=... — fetches on-chain record, fetches IPFS JSON, recomputes SHA256 hash, returns verification result
+- Verify endpoint response: { action_id, ipfs_hash_onchain, ipfs_hash_computed, hash_match: bool, record: dict, ipfs_data: dict }
+- hash_match: True = ✅ Verified, False = ❌ Tampered
 - Add CORS middleware (allow_origins=["*"] for hackathon)
 - Run with: uvicorn api.main:app --reload --port 8000
 

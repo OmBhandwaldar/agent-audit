@@ -15,12 +15,27 @@
 
 ## Smart Contract Rules
 - Contract file: contracts/audit_contract.py
-- Use box storage for audit records.
-- Box key MUST be fixed length. Use sha256(action_id)[:32] — never raw string action_id.
-- Keep contract logic minimal. Policy check is: amount < POLICY_LIMIT. Nothing more.
-- Contract has two external methods only:
-  - submit_audit() — write path
+- Use box storage for audit records AND vendor whitelist.
+- Box key MUST be fixed length. Use sha256(x.bytes) — never raw strings as box keys.
+- Box key prefixes: records use key_prefix=b"r:", vendors use key_prefix=b"v:" to avoid collision.
+- Two policy checks (both must pass for ASA mint):
+  1. Amount check: amount < policy_limit
+  2. Vendor check: sha256(vendor_id.bytes) in vendors BoxMap
+- policy_result stored as: "amount:pass|vendor:pass" (or "fail" per individual check)
+- Contract has six external methods:
+  - initialize()    — create-time setup (ASA ID + policy limit)
+  - opt_in_asa()    — post-deploy ASA opt-in (creator only)
+  - add_vendor()    — add vendor to on-chain whitelist (creator only)
+  - remove_vendor() — remove vendor from whitelist (creator only)
+  - submit_audit()  — write path (now includes vendor_id param)
   - get_audit_record() — read only
+
+## Vendor Whitelist Rules
+- Vendor keys are sha256(vendor_id.bytes) — same fixed-length pattern as audit record keys.
+- Only contract creator can add/remove vendors.
+- After each redeploy, run scripts/seed_vendors.py to populate whitelist.
+- Demo vendor IDs: VENDOR_001 (approved), VENDOR_002 (approved), VENDOR_999 (not seeded — for rejection demo).
+- When calling submit_audit, the vendor box must be included in the transaction's boxes array.
 
 ## ASA Rules
 - ASA must be created on Day 1 before any other contract work.
@@ -48,4 +63,5 @@
 - Do not suggest mainnet deployment at any point before Round 3.
 - Do not suggest stateful global storage for audit records (boxes are correct here).
 - Do not suggest TEAL directly — use Algokit abstractions.
-- Do not add more contract methods than specified above.
+- Do not add more contract methods than the six specified above.
+- Do not add a time-of-day policy check — dropped due to demo risk (live demo could be outside business hours).

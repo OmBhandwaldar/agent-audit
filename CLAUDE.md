@@ -27,20 +27,21 @@ One-line vision: "AgentAudit becomes the trust layer for autonomous AI systems o
 
 ## MVP Scope (April 15 Deadline)
 
-**One use case only:** AI agent approves or rejects a payment based on amount.
+**One use case only:** AI agent approves or rejects a payment based on amount and vendor.
 
 **Full end-to-end flow:**
-1. User enters amount in UI → clicks "Run Agent"
+1. User enters amount + vendor ID in UI → clicks "Run Agent"
 2. LangChain agent decides: approve if amount < 5000, else reject
-3. SDK captures: action, amount, decision, policy ID
+3. SDK captures: action, amount, vendor_id, decision, policy ID
 4. Decision JSON uploaded to IPFS via Pinata → returns CID
 5. Hash of IPFS data + metadata sent to Algorand smart contract
-6. Smart contract: stores record, checks policy, mints ASA if approved
-7. UI displays: decision result, IPFS CID, Algorand TX ID, ASA receipt status
+6. Smart contract: checks two policies (amount limit + vendor whitelist), stores record, mints ASA if both pass
+7. UI displays: decision result, per-policy breakdown, IPFS CID, Algorand TX ID, ASA receipt status
+8. Separate "Verify" tab: enter any action ID → independently verify hash on-chain vs IPFS
 
 **Do NOT build for MVP:**
 - Multiple agent types
-- Complex or dynamic policies
+- Time-of-day policy (dropped — demo risk)
 - ZK proofs
 - DID system
 - Multi-framework support
@@ -87,16 +88,18 @@ agentaudit/
 │   ├── client.py              # get_algod_client(), get_indexer_client()
 │   └── contract_client.py     # submit_audit(), get_audit_record()
 ├── api/
-│   └── main.py                # FastAPI app — POST /api/audit only
+│   └── main.py                # FastAPI app — POST /api/audit + GET /api/verify
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx            # All state lives here
+│   │   ├── App.jsx            # All state + tab toggle lives here
 │   │   └── components/
-│   │       └── AuditResult.jsx  # Receives result as props, renders result state
+│   │       ├── AuditResult.jsx  # Tab 1 result state — receives result as props
+│   │       └── VerifyAudit.jsx  # Tab 2 — own local state, calls /api/verify
 │   ├── index.html
 │   └── package.json
 ├── scripts/
-│   └── runFlow.py             # Day 5 checkpoint — must pass before frontend
+│   ├── runFlow.py             # Day 5 checkpoint — must pass before frontend
+│   └── seed_vendors.py        # Seeds VENDOR_001, VENDOR_002 on-chain after redeploy
 ├── tests/
 │   └── test_flow.py           # Basic pipeline tests
 └── .claude/
@@ -168,42 +171,43 @@ Install all: `pip install -r requirements.txt`
 
 **State (Box Storage):**
 ```
-Box key: sha256(action_id)[:32]  # Always fixed length, avoids key size limits
-Box value (audit record):
-  - ipfs_hash: bytes       # SHA256 of IPFS CID
-  - agent_id: bytes        # agent identifier
-  - timestamp: uint64      # Unix timestamp
-  - policy_id: bytes       # e.g. "limit_5000"
-  - decision: bytes        # "approved" or "rejected"
-  - policy_result: bytes   # "pass" or "fail"
-  - amount: uint64         # payment amount
-  - asa_id: uint64         # compliance receipt ASA ID (0 if rejected)
+records BoxMap — key_prefix=b"r:"
+  Box key: sha256(action_id.bytes)  # Always 32 bytes
+  Box value (AuditRecord struct):
+    - ipfs_hash: String      # SHA256 hex of IPFS CID
+    - agent_id: String       # agent identifier
+    - timestamp: UInt64      # Unix timestamp
+    - policy_id: String      # e.g. "limit_5000"
+    - decision: String       # "approved" or "rejected"
+    - policy_result: String  # "amount:pass|vendor:pass" (or "fail" per check)
+    - amount: UInt64         # payment amount
+    - asa_id: UInt64         # compliance receipt ASA ID (0 if any policy fails)
+    - vendor_id: String      # vendor identifier checked against whitelist
+
+vendors BoxMap — key_prefix=b"v:"
+  Box key: sha256(vendor_id.bytes)  # Always 32 bytes
+  Box value: arc4.Bool(True)        # presence = approved
 ```
 
 **Methods:**
 ```python
-# Store audit record + run policy check + transfer ASA if approved
-@app.external
-def submit_audit(
-    action_id: abi.String,
-    ipfs_hash: abi.String,
-    agent_id: abi.String,
-    policy_id: abi.String,
-    decision: abi.String,
-    amount: abi.Uint64,
-    timestamp: abi.Uint64,
-) -> abi.String:
-    # Policy check: amount < POLICY_LIMIT
-    # Store record in box storage using sha256(action_id) as key
-    # If pass: transfer 1 unit of ASA from contract's own holding to caller
-    # Contract must be opted in and hold ASA supply — set this up on Day 1
-    # Return: "pass" or "fail"
+initialize(compliance_asa_id, policy_limit)  # create-time, once only
+opt_in_asa()                                 # creator only, post-deploy
+add_vendor(vendor_id: String)                # creator only — adds to whitelist
+remove_vendor(vendor_id: String)             # creator only — removes from whitelist
 
-# Read audit record by action ID
-@app.external(read_only=True)
-def get_audit_record(action_id: abi.String) -> abi.String:
-    # Hash action_id to get box key, return stored record as JSON string
+submit_audit(action_id, ipfs_hash, agent_id, policy_id,
+             decision, amount, timestamp, vendor_id) -> String
+    # Two policy checks: amount < policy_limit AND vendor in whitelist
+    # Both must pass for ASA transfer. Returns "amount:X|vendor:X"
+
+get_audit_record(action_id) -> String  # read-only, returns pipe-delimited fields
 ```
+
+**Demo vendor IDs:**
+- `VENDOR_001` — approved (seed on deploy)
+- `VENDOR_002` — approved (seed on deploy)
+- `VENDOR_999` — NOT seeded (use for rejection demo)
 
 **ASA Setup (do this on Day 1 — before writing any other code):**
 - Create ASA with creator = deployer wallet
@@ -227,21 +231,24 @@ def get_audit_record(action_id: abi.String) -> abi.String:
 import time, random
 from hashlib import sha256
 
-async def run_audit_flow(amount: int) -> dict:
+async def run_audit_flow(amount: int, vendor_id: str) -> dict:
     """
     Main pipeline. Call this from anywhere.
     Returns: {
         decision, ipfs_cid, algorand_tx_id,
-        policy_result, asa_minted, action_id
+        policy_result, asa_minted, action_id,
+        vendor_id, policy_checks
     }
+    policy_checks: {"amount_check": "pass"/"fail", "vendor_check": "pass"/"fail"}
     """
-    # 1. Run LangChain agent
+    # 1. Run LangChain agent (decides on amount only; vendor check is on-chain)
     decision, reason = await run_payment_agent(amount)
 
     # 2. Build decision record
     record = {
         "action": "approve_payment",
         "amount": amount,
+        "vendor_id": vendor_id,
         "decision": decision,
         "reason": reason,
         "policy": "limit_5000",
@@ -256,11 +263,13 @@ async def run_audit_flow(amount: int) -> dict:
     ipfs_hash = sha256(cid.encode()).hexdigest()
 
     # 5. Submit to Algorand smart contract
-    # Use timestamp + random suffix to avoid collision if called twice in same second
     action_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
     tx_result = await submit_to_algorand(
         action_id, ipfs_hash, record
     )
+
+    # 6. Parse per-policy results from "amount:pass|vendor:pass" string
+    policy_checks = _parse_policy_result(tx_result.policy_result)
 
     return {
         "decision": decision,
@@ -268,7 +277,9 @@ async def run_audit_flow(amount: int) -> dict:
         "algorand_tx_id": tx_result.tx_id,
         "policy_result": tx_result.policy_result,
         "asa_minted": tx_result.asa_minted,
-        "action_id": action_id
+        "action_id": action_id,
+        "vendor_id": vendor_id,
+        "policy_checks": policy_checks,
     }
 ```
 
@@ -304,8 +315,9 @@ If LangChain is causing issues close to deadline, swap in this function instantl
 Judges cannot tell the difference in a demo. Do not feel bad about using it.
 
 ```python
-def decide_payment(amount: int) -> tuple[str, str]:
-    """Fallback: simple rule-based decision. Drop-in replacement for LangChain agent."""
+def decide_payment(amount: int, vendor_id: str) -> tuple[str, str]:
+    """Fallback: simple rule-based decision. Drop-in replacement for LangChain agent.
+    Note: vendor check happens on-chain; agent only evaluates amount."""
     limit = int(os.getenv("POLICY_LIMIT", 5000))
     if amount < limit:
         return "approved", f"Amount {amount} is within policy limit {limit}"
@@ -386,14 +398,15 @@ Run with: `uvicorn api.main:app --reload`
 
 ```python
 # Run this in terminal to verify full pipeline works
-# Usage: python scripts/runFlow.py 3000
+# Usage: python scripts/runFlow.py 3000 VENDOR_001
 import asyncio, sys
 from sdk.audit_flow import run_audit_flow
 
 async def main():
     amount = int(sys.argv[1]) if len(sys.argv) > 1 else 3000
-    print(f"\nRunning audit flow for amount: ₹{amount}\n")
-    result = await run_audit_flow(amount)
+    vendor_id = sys.argv[2] if len(sys.argv) > 2 else "VENDOR_001"
+    print(f"\nRunning audit flow for amount: ₹{amount}, vendor: {vendor_id}\n")
+    result = await run_audit_flow(amount, vendor_id)
     print("✅ Decision:      ", result["decision"])
     print("📦 IPFS CID:      ", result["ipfs_cid"])
     print("⛓  Algorand TX:   ", result["algorand_tx_id"])
@@ -403,7 +416,7 @@ async def main():
 asyncio.run(main())
 ```
 
-**If this works → proceed to frontend. If not → fix before anything else.**
+**If this works → run seed_vendors.py → proceed to frontend. If not → fix before anything else.**
 
 ---
 
@@ -411,25 +424,39 @@ asyncio.run(main())
 
 **Keep it minimal. Function over form.**
 
-Single page, three states:
-1. **Input state:** Amount field + "Run Agent" button
+Two tabs: "Run Agent" | "Verify Audit". No routing library.
+
+**Tab 1 — Run Agent, three states:**
+1. **Input state:** Amount field + Vendor ID field + "Run Agent" button
 2. **Loading state:** "Agent is processing..." spinner
-3. **Result state:** Display all returned values
+3. **Result state (AuditResult.jsx):** Decision badge + per-policy rows + links
 
 ```jsx
 // Result display fields:
 // ✅ Decision: Approved / ❌ Rejected
-// 📦 IPFS CID: <cid> (clickable link to ipfs.io gateway)
-// ⛓  Algorand TX: <tx_id> (clickable link to testnet explorer)
-// 🧾 Compliance Receipt: Minted / Not applicable
-// 🕐 Timestamp: <human readable>
+// Amount Check: ✅ Pass / ❌ Fail
+// Vendor Check: ✅ Pass / ❌ Fail
+// 🧾 Compliance Receipt: Minted (1 AACR) / Not applicable
+// 📦 IPFS CID: <cid> (clickable → Pinata gateway)
+// ⛓  Algorand TX: <tx_id> (clickable → testnet explorer)
+// Action ID: <id> (monospace)
 ```
 
-Backend API endpoint needed:
+**Tab 2 — Verify Audit (VerifyAudit.jsx):**
+- Action ID input + "Verify" button
+- Fetches GET /api/verify?action_id=...
+- Shows: ✅ Hash Verified / ❌ Hash Mismatch + full record details
+
+Backend API endpoints:
 ```
 POST /api/audit
-Body: { "amount": 3000 }
-Response: { decision, ipfs_cid, algorand_tx_id, policy_result, asa_minted }
+Body: { "amount": 3000, "vendor_id": "VENDOR_001" }
+Response: { decision, ipfs_cid, algorand_tx_id, policy_result, asa_minted,
+            action_id, vendor_id, policy_checks }
+
+GET /api/verify?action_id=<id>
+Response: { action_id, ipfs_hash_onchain, ipfs_hash_computed,
+            hash_match, record, ipfs_data }
 ```
 
 ---

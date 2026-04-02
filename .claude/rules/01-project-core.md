@@ -15,11 +15,16 @@ Round 2 MVP deadline: April 15, 2026.
 
 ## Scope Lock
 MVP is ONE use case: payment approval agent.
+
+In scope (built or actively building):
+- Two on-chain policy checks: amount limit + vendor whitelist
+- Auditor/Verifier flow: independent hash verification of any audit record
+
 Do not suggest expanding scope to:
 - Multiple agent types
 - Multiple action types
 - Multiple frameworks
-- Complex or dynamic policies
+- Time-of-day or other additional policy checks (dropped — demo risk)
 - ZK proofs (mention only, do not build)
 - DID system (mention only, do not build)
 - Multi-agent coordination
