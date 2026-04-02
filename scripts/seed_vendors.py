@@ -43,10 +43,10 @@ async def main() -> None:
     for vendor_id in APPROVED_VENDORS:
         try:
             tx_id = await add_vendor(vendor_id)
-            print(f"  ✅ {vendor_id} added (TX: {tx_id})")
+            print(f"  [OK] {vendor_id} added (TX: {tx_id})")
             success_count += 1
         except Exception as e:
-            print(f"  ❌ {vendor_id} failed: {e}")
+            print(f"  [FAIL] {vendor_id} failed: {e}")
 
     print(f"\nDone. {success_count}/{len(APPROVED_VENDORS)} vendors seeded.")
     print("VENDOR_999 is intentionally NOT seeded — use it for rejection demos.\n")
