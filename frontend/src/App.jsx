@@ -1,12 +1,17 @@
 import { useState } from "react"
 import AuditResult from "./components/AuditResult"
+import VerifyAudit from "./components/VerifyAudit"
 import "./App.css"
 
 const API_BASE = "http://localhost:8000"
 
 function App() {
+  const [activeTab, setActiveTab] = useState("run")  // "run" | "verify"
+
+  // Run Agent tab state
   const [amountInput, setAmountInput] = useState("")
-  const [status, setStatus] = useState("input")   // "input" | "loading" | "result"
+  const [vendorInput, setVendorInput] = useState("")
+  const [status, setStatus] = useState("input")  // "input" | "loading" | "result"
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
 
@@ -14,6 +19,10 @@ function App() {
     const amount = parseInt(amountInput, 10)
     if (!amountInput || isNaN(amount) || amount <= 0) {
       setError("Please enter a valid amount greater than 0")
+      return
+    }
+    if (!vendorInput.trim()) {
+      setError("Please enter a vendor ID")
       return
     }
 
@@ -24,7 +33,7 @@ function App() {
       const response = await fetch(`${API_BASE}/api/audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
+        body: JSON.stringify({ amount, vendor_id: vendorInput.trim() }),
       })
 
       if (!response.ok) {
@@ -46,10 +55,16 @@ function App() {
     setResult(null)
     setError(null)
     setAmountInput("")
+    setVendorInput("")
   }
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && status === "input") handleRunAgent()
+  }
+
+  const handleTabSwitch = (tab) => {
+    setActiveTab(tab)
+    if (tab === "run") handleReset()
   }
 
   return (
@@ -60,41 +75,73 @@ function App() {
         <p className="subtitle">Verifiable audit infrastructure for autonomous AI agents</p>
       </header>
 
+      {/* Tab toggle */}
+      <div className="tab-bar">
+        <button
+          className={`tab-btn ${activeTab === "run" ? "active" : ""}`}
+          onClick={() => handleTabSwitch("run")}
+        >
+          Run Agent
+        </button>
+        <button
+          className={`tab-btn ${activeTab === "verify" ? "active" : ""}`}
+          onClick={() => handleTabSwitch("verify")}
+        >
+          Verify Audit
+        </button>
+      </div>
+
       <main className="main">
 
-        {/* Input state */}
-        {status === "input" && (
-          <div className="input-card">
-            <label className="input-label">Payment Amount (₹)</label>
-            <input
-              className="input-field"
-              type="number"
-              placeholder="e.g. 3000"
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              min="1"
-              autoFocus
-            />
-            {error && <p className="error-msg">{error}</p>}
-            <button className="btn-run" onClick={handleRunAgent}>
-              Run Agent
-            </button>
-          </div>
+        {/* Run Agent tab */}
+        {activeTab === "run" && (
+          <>
+            {status === "input" && (
+              <div className="input-card">
+                <label className="input-label">Payment Amount (₹)</label>
+                <input
+                  className="input-field"
+                  type="number"
+                  placeholder="e.g. 3000"
+                  value={amountInput}
+                  onChange={(e) => setAmountInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  min="1"
+                  autoFocus
+                />
+                <label className="input-label" style={{ marginTop: "12px" }}>Vendor ID</label>
+                <input
+                  className="input-field"
+                  type="text"
+                  placeholder="e.g. VENDOR_001"
+                  value={vendorInput}
+                  onChange={(e) => setVendorInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                />
+                {error && <p className="error-msg">{error}</p>}
+                <button className="btn-run" onClick={handleRunAgent}>
+                  Run Agent
+                </button>
+              </div>
+            )}
+
+            {status === "loading" && (
+              <div className="loading-card">
+                <div className="spinner" />
+                <p className="loading-text">Agent is processing...</p>
+                <p className="loading-sub">Uploading to IPFS and recording on Algorand</p>
+              </div>
+            )}
+
+            {status === "result" && result && (
+              <AuditResult result={result} onReset={handleReset} />
+            )}
+          </>
         )}
 
-        {/* Loading state */}
-        {status === "loading" && (
-          <div className="loading-card">
-            <div className="spinner" />
-            <p className="loading-text">Agent is processing...</p>
-            <p className="loading-sub">Uploading to IPFS and recording on Algorand</p>
-          </div>
-        )}
-
-        {/* Result state */}
-        {status === "result" && result && (
-          <AuditResult result={result} onReset={handleReset} />
+        {/* Verify Audit tab */}
+        {activeTab === "verify" && (
+          <VerifyAudit apiBase={API_BASE} />
         )}
 
       </main>

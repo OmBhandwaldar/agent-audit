@@ -2,9 +2,10 @@
 AgentAudit core pipeline.
 
 run_audit_flow() is the single entry point for the full audit flow:
-  1. Agent decides approve/reject
+  1. Agent decides approve/reject (based on amount)
   2. Decision JSON uploaded to IPFS
   3. Audit record submitted to Algorand smart contract
+     — contract checks amount limit AND vendor whitelist
   4. Returns full result dict for API and frontend
 """
 
@@ -28,30 +29,47 @@ AGENT_ID = os.getenv("AGENT_ID", "agent_001")
 POLICY_ID = "limit_5000"
 
 
-async def run_audit_flow(amount: int) -> dict:
+def _parse_policy_result(policy_result: str) -> dict:
+    """
+    Parse "amount:pass|vendor:pass" into per-check dict.
+
+    Returns:
+        Dict with keys: amount_check, vendor_check. Values: "pass" or "fail".
+    """
+    checks: dict = {}
+    for part in policy_result.split("|"):
+        if ":" in part:
+            key, value = part.split(":", 1)
+            checks[f"{key}_check"] = value
+    return checks
+
+
+async def run_audit_flow(amount: int, vendor_id: str) -> dict:
     """
     Run the full audit pipeline for a payment approval request.
 
     Steps:
-      1. Agent decides approve/reject based on policy
-      2. Decision record uploaded to IPFS via Pinata
+      1. Agent decides approve/reject based on amount
+      2. Decision record (with vendor_id) uploaded to IPFS via Pinata
       3. SHA256 of CID computed as ipfs_hash
       4. Audit record submitted to Algorand smart contract
+         — contract runs two policy checks: amount limit + vendor whitelist
       5. Returns complete result dict
 
     Args:
         amount: Payment amount to evaluate.
+        vendor_id: Vendor identifier to check against the on-chain whitelist.
 
     Returns:
-        Dict with keys: decision, ipfs_cid, algorand_tx_id,
-        policy_result, asa_minted, action_id.
+        Dict with keys: decision, ipfs_cid, algorand_tx_id, policy_result,
+        asa_minted, action_id, vendor_id, policy_checks.
 
     Raises:
         RuntimeError: If any step in the pipeline fails.
     """
-    # Step 1: Agent decision
-    logger.info("Running payment agent for amount: %d", amount)
-    decision, reason = decide_payment(amount)
+    # Step 1: Agent decision (amount only — vendor check is on-chain)
+    logger.info("Running payment agent for amount: %d, vendor: %s", amount, vendor_id)
+    decision, reason = decide_payment(amount, vendor_id)
     logger.info("Agent decision: %s", decision)
 
     # Step 2: Build decision record
@@ -61,6 +79,7 @@ async def run_audit_flow(amount: int) -> dict:
     record = {
         "action": "approve_payment",
         "amount": amount,
+        "vendor_id": vendor_id,
         "decision": decision,
         "reason": reason,
         "policy": POLICY_ID,
@@ -68,10 +87,10 @@ async def run_audit_flow(amount: int) -> dict:
         "timestamp": timestamp,
     }
 
-    # Step 3: Upload to IPFS
+    # Step 3: Upload to IPFS — action_id stored as Pinata metadata name for later lookup
     logger.info("Uploading decision record to IPFS...")
     try:
-        ipfs_cid = await upload_to_ipfs(record)
+        ipfs_cid = await upload_to_ipfs(record, name=action_id)
     except Exception as e:
         raise RuntimeError(f"IPFS upload failed for action {action_id}: {e}")
     logger.info("IPFS CID: %s", ipfs_cid)
@@ -87,6 +106,9 @@ async def run_audit_flow(amount: int) -> dict:
         raise RuntimeError(f"Algorand submission failed for action {action_id}: {e}")
     logger.info("Algorand TX confirmed: %s", tx_result.tx_id)
 
+    # Step 6: Parse per-policy breakdown for frontend
+    policy_checks = _parse_policy_result(tx_result.policy_result)
+
     return {
         "decision": decision,
         "ipfs_cid": ipfs_cid,
@@ -94,4 +116,6 @@ async def run_audit_flow(amount: int) -> dict:
         "policy_result": tx_result.policy_result,
         "asa_minted": tx_result.asa_minted,
         "action_id": action_id,
+        "vendor_id": vendor_id,
+        "policy_checks": policy_checks,
     }

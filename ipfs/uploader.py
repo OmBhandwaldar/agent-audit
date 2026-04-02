@@ -23,15 +23,19 @@ MAX_RETRIES = 2
 RETRY_DELAY = 2.0
 
 
-async def upload_to_ipfs(data: dict) -> str:
+async def upload_to_ipfs(data: dict, name: str = "") -> str:
     """
     Upload a JSON-serialisable dict to IPFS via Pinata.
 
     Retries once on any failure before raising.
     Returns the IPFS CID string (e.g. "QmXyz...").
 
+    The optional name is stored as Pinata metadata so the verify endpoint
+    can later look up the CID by action_id using the Pinata list API.
+
     Args:
         data: The decision record to upload.
+        name: Optional Pinata metadata name (set to action_id for lookups).
 
     Raises:
         RuntimeError: If both attempts fail.
@@ -43,7 +47,9 @@ async def upload_to_ipfs(data: dict) -> str:
         "Authorization": f"Bearer {PINATA_JWT}",
         "Content-Type": "application/json",
     }
-    payload = {"pinataContent": data}
+    payload: dict = {"pinataContent": data}
+    if name:
+        payload["pinataMetadata"] = {"name": name}
 
     last_error: Exception | None = None
 
@@ -53,7 +59,7 @@ async def upload_to_ipfs(data: dict) -> str:
                 response = await client.post(PINATA_URL, json=payload, headers=headers)
                 response.raise_for_status()
                 cid = response.json()["IpfsHash"]
-                logger.info("IPFS upload successful: %s", cid)
+                logger.info("IPFS upload successful: %s (name: %s)", cid, name or "—")
                 return cid
         except Exception as e:
             last_error = e

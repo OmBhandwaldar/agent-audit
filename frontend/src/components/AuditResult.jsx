@@ -11,8 +11,18 @@ function truncate(str, maxLength = 20) {
   return str.slice(0, maxLength) + "..."
 }
 
+function PolicyBadge({ value }) {
+  const pass = value === "pass"
+  return (
+    <span className={`result-value ${pass ? "pass" : "fail"}`}>
+      {pass ? "✅ Pass" : "❌ Fail"}
+    </span>
+  )
+}
+
 function AuditResult({ result, onReset }) {
   const isApproved = result.decision === "approved"
+  const checks = result.policy_checks || {}
 
   return (
     <div className="result-card">
@@ -26,10 +36,18 @@ function AuditResult({ result, onReset }) {
       <div className="result-rows">
 
         <div className="result-row">
-          <span className="result-label">Policy Result</span>
-          <span className={`result-value ${result.policy_result === "pass" ? "pass" : "fail"}`}>
-            {result.policy_result === "pass" ? "Pass" : "Fail"}
-          </span>
+          <span className="result-label">Amount Check</span>
+          <PolicyBadge value={checks.amount_check} />
+        </div>
+
+        <div className="result-row">
+          <span className="result-label">Vendor Check</span>
+          <PolicyBadge value={checks.vendor_check} />
+        </div>
+
+        <div className="result-row">
+          <span className="result-label">Vendor ID</span>
+          <span className="result-value mono">{result.vendor_id}</span>
         </div>
 
         <div className="result-row">
@@ -67,7 +85,9 @@ function AuditResult({ result, onReset }) {
 
         <div className="result-row">
           <span className="result-label">Action ID</span>
-          <span className="result-value mono">{result.action_id}</span>
+          <span className="result-value mono" title={result.action_id}>
+            {result.action_id}
+          </span>
         </div>
 
       </div>

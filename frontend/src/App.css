@@ -51,6 +51,41 @@ body {
   text-align: center;
 }
 
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  background: #1e2130;
+  border: 1px solid #2d3248;
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 24px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  color: #64748b;
+  border: none;
+  border-radius: 7px;
+  padding: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-btn:hover {
+  color: #e2e8f0;
+}
+
+.tab-btn.active {
+  background: #2d3248;
+  color: #a78bfa;
+}
+
 /* Input card */
 .input-card {
   background: #1e2130;
@@ -75,7 +110,7 @@ body {
   border: 1px solid #2d3248;
   border-radius: 8px;
   padding: 12px 16px;
-  font-size: 1.5rem;
+  font-size: 1rem;
   color: #e2e8f0;
   width: 100%;
   outline: none;
