@@ -69,8 +69,8 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
     """
     # Step 1: Agent decision (amount only — vendor check is on-chain)
     logger.info("Running payment agent for amount: %d, vendor: %s", amount, vendor_id)
-    decision, reason = decide_payment(amount, vendor_id)
-    logger.info("Agent decision: %s", decision)
+    agent_decision, reason = decide_payment(amount, vendor_id)
+    logger.info("Agent decision: %s", agent_decision)
 
     # Step 2: Build decision record
     timestamp = int(time.time())
@@ -80,7 +80,7 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
         "action": "approve_payment",
         "amount": amount,
         "vendor_id": vendor_id,
-        "decision": decision,
+        "agent_decision": agent_decision,  # what the agent decided (amount only)
         "reason": reason,
         "policy": POLICY_ID,
         "agent_id": AGENT_ID,
@@ -99,6 +99,8 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
     ipfs_hash = sha256(ipfs_cid.encode()).hexdigest()
 
     # Step 5: Submit to Algorand smart contract
+    # Pass agent_decision as the decision field the contract stores
+    record["decision"] = agent_decision
     logger.info("Submitting audit record to Algorand (action_id: %s)...", action_id)
     try:
         tx_result = await submit_audit(action_id, ipfs_hash, record)
@@ -106,11 +108,20 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
         raise RuntimeError(f"Algorand submission failed for action {action_id}: {e}")
     logger.info("Algorand TX confirmed: %s", tx_result.tx_id)
 
-    # Step 6: Parse per-policy breakdown for frontend
+    # Step 6: Parse per-policy breakdown
     policy_checks = _parse_policy_result(tx_result.policy_result)
 
+    # Step 7: Compute effective decision — "approved" only if ALL policies pass
+    # The agent checks amount; the contract also checks vendor. Both must pass.
+    effective_decision = "approved" if tx_result.asa_minted else "rejected"
+    if effective_decision != agent_decision:
+        logger.info(
+            "Agent decision '%s' overridden to '%s' based on on-chain policy result: %s",
+            agent_decision, effective_decision, tx_result.policy_result,
+        )
+
     return {
-        "decision": decision,
+        "decision": effective_decision,
         "ipfs_cid": ipfs_cid,
         "algorand_tx_id": tx_result.tx_id,
         "policy_result": tx_result.policy_result,

@@ -251,12 +251,24 @@ async def get_audit_record(action_id: str) -> dict:
 
     response = _decode_arc4_string(raw[4:])
 
-    # Parse "key=value|key=value" format returned by the contract
+    # Parse "key=value|key=value" format returned by the contract.
+    # policy_result itself contains "|" (e.g. "amount:pass|vendor:fail"),
+    # so parts without "=" are continuations of the previous field's value.
     parsed: dict = {}
-    for pair in response.split("|"):
-        if "=" in pair:
-            key, value = pair.split("=", 1)
-            parsed[key] = value
+    current_key: str = ""
+    current_value: str = ""
+
+    for part in response.split("|"):
+        if "=" in part:
+            if current_key:
+                parsed[current_key] = current_value
+            current_key, current_value = part.split("=", 1)
+        else:
+            # No "=" — continuation of the previous value (e.g. "|vendor:fail")
+            current_value = current_value + "|" + part
+
+    if current_key:
+        parsed[current_key] = current_value
 
     return parsed
 
