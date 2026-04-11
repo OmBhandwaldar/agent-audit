@@ -72,10 +72,8 @@ async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
         vendor_id: Vendor identifier (passed through for logging; not checked here).
     """
     try:
-        from langchain.agents import AgentExecutor, create_tool_calling_agent
-        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         from langchain_core.tools import tool
-        from langchain_openai import ChatOpenAI
+        from langchain_groq import ChatGroq
 
         @tool
         def check_payment_policy(amount: int) -> str:
@@ -84,23 +82,27 @@ async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
                 return f"approved: amount {amount} is within limit {POLICY_LIMIT}"
             return f"rejected: amount {amount} exceeds limit {POLICY_LIMIT}"
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+        llm_with_tools = llm.bind_tools([check_payment_policy])
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a payment approval agent. Use the check_payment_policy tool to decide whether to approve or reject the payment. Always use the tool."),
-            ("human", "{input}"),
-            MessagesPlaceholder("agent_scratchpad"),
-        ])
+        messages = [
+            {"role": "system", "content": "You are a payment approval agent. Use the check_payment_policy tool to decide whether to approve or reject the payment. Always call the tool."},
+            {"role": "user", "content": f"Should I approve a payment of amount {amount}?"},
+        ]
 
-        agent = create_tool_calling_agent(llm, [check_payment_policy], prompt)
-        executor = AgentExecutor(agent=agent, tools=[check_payment_policy], verbose=False)
+        response = await llm_with_tools.ainvoke(messages)
 
-        result = await executor.ainvoke(
-            {"input": f"Should I approve a payment of amount {amount}?"}
-        )
-        output = result.get("output", "")
-        logger.info("LangChain agent output for vendor %s: %s", vendor_id, output.strip())
+        # If the model called the tool, invoke it and use the result
+        if response.tool_calls:
+            tool_result = check_payment_policy.invoke(response.tool_calls[0]["args"])
+            logger.info("LangChain agent tool result for vendor %s: %s", vendor_id, tool_result)
+            if "approved" in tool_result.lower():
+                return "approved", tool_result
+            return "rejected", tool_result
 
+        # If no tool call, parse text response directly
+        output = response.content or ""
+        logger.info("LangChain agent text output for vendor %s: %s", vendor_id, output.strip())
         if "approved" in output.lower():
             return "approved", output.strip()
         return "rejected", output.strip()
