@@ -3,19 +3,27 @@
  *
  * Fetches the on-chain record by action ID, fetches the original IPFS data,
  * recomputes the SHA256 hash, and compares it to what is stored on-chain.
- * Shows Hash Verified or Hash Mismatch.
  *
- * After a successful verification, exposes a "Simulate Tampering" button
- * that calls /api/tamper-demo to prove the system detects any modification.
+ * After successful verification, exposes a "Simulate Tampering" button
+ * that proves the system detects any modification live.
  */
 
 import { useState } from "react"
 
 const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs"
 
-function truncate(str, maxLength = 32) {
+function truncate(str, maxLength = 28) {
   if (!str || str.length <= maxLength) return str
   return str.slice(0, maxLength) + "..."
+}
+
+function ResultRow({ label, children }) {
+  return (
+    <div className="flex justify-between items-center py-2.5 border-b border-[#1a1f2e] last:border-0">
+      <span className="text-xs text-slate-500 uppercase tracking-wider flex-shrink-0">{label}</span>
+      <span className="text-right ml-4">{children}</span>
+    </div>
+  )
 }
 
 function VerifyAudit({ apiBase }) {
@@ -100,10 +108,10 @@ function VerifyAudit({ apiBase }) {
     <div>
 
       {status === "input" && (
-        <div className="input-card">
-          <label className="input-label">Action ID</label>
+        <div className="bg-[#1e2130] border border-[#2d3248] rounded-xl p-8 flex flex-col gap-4">
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Action ID</label>
           <input
-            className="input-field"
+            className="bg-[#0f1117] border border-[#2d3248] rounded-lg px-4 py-3 text-slate-200 w-full outline-none focus:border-violet-400 transition-colors placeholder:text-slate-600"
             type="text"
             placeholder="e.g. 1743600000_1234"
             value={actionIdInput}
@@ -111,157 +119,157 @@ function VerifyAudit({ apiBase }) {
             onKeyDown={handleKeyDown}
             autoFocus
           />
-          {error && <p className="error-msg">{error}</p>}
-          <button className="btn-run" onClick={handleVerify}>
+          {error && <p className="text-sm text-red-400">{error}</p>}
+          <button
+            className="bg-violet-400 text-[#0f1117] rounded-lg py-3.5 font-bold text-base hover:bg-violet-300 transition-colors cursor-pointer"
+            onClick={handleVerify}
+          >
             Verify
           </button>
         </div>
       )}
 
       {status === "loading" && (
-        <div className="loading-card">
-          <div className="spinner" />
-          <p className="loading-text">Fetching record from Algorand...</p>
-          <p className="loading-sub">Verifying hash against IPFS data</p>
+        <div className="bg-[#1e2130] border border-[#2d3248] rounded-xl p-12 flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-[#2d3248] border-t-violet-400 rounded-full animate-spin" />
+          <p className="text-base font-semibold text-slate-200">Fetching record from Algorand...</p>
+          <p className="text-sm text-slate-500 text-center">Verifying hash against IPFS data</p>
         </div>
       )}
 
       {status === "result" && verifyResult && (
-        <div className="result-card">
+        <div className="bg-[#1e2130] border border-[#2d3248] rounded-xl p-8 flex flex-col gap-6">
 
-          {/* Verification status — prominent */}
-          <div className={`decision-badge ${verifyResult.hash_match ? "approved" : "rejected"}`}>
+          {/* Verification status */}
+          <div className={`text-center text-2xl font-bold py-4 rounded-lg border
+            ${verifyResult.hash_match
+              ? "bg-green-950 text-green-400 border-green-800"
+              : "bg-red-950 text-red-400 border-red-900"
+            }`}>
             {verifyResult.hash_match ? "✅ Hash Verified" : "❌ Hash Mismatch"}
           </div>
 
-          <div className="result-rows">
+          <div className="flex flex-col">
 
-            <div className="result-row">
-              <span className="result-label">Action ID</span>
-              <span className="result-value mono">{verifyResult.action_id}</span>
-            </div>
+            <ResultRow label="Action ID">
+              <span className="font-mono text-xs text-slate-200">{verifyResult.action_id}</span>
+            </ResultRow>
 
-            <div className="result-row">
-              <span className="result-label">Hash (on-chain)</span>
-              <span className="result-value mono" title={verifyResult.ipfs_hash_onchain}>
-                {truncate(verifyResult.ipfs_hash_onchain, 28)}
+            <ResultRow label="Hash (on-chain)">
+              <span className="font-mono text-xs text-slate-200" title={verifyResult.ipfs_hash_onchain}>
+                {truncate(verifyResult.ipfs_hash_onchain)}
               </span>
-            </div>
+            </ResultRow>
 
-            <div className="result-row">
-              <span className="result-label">Hash (recomputed)</span>
+            <ResultRow label="Hash (recomputed)">
               <span
-                className={`result-value mono ${verifyResult.hash_match ? "pass" : "fail"}`}
+                className={`font-mono text-xs ${verifyResult.hash_match ? "text-green-400" : "text-red-400"}`}
                 title={verifyResult.ipfs_hash_computed}
               >
-                {truncate(verifyResult.ipfs_hash_computed || "—", 28)}
+                {truncate(verifyResult.ipfs_hash_computed || "—")}
               </span>
-            </div>
+            </ResultRow>
 
             {verifyResult.record && (
               <>
-                <div className="result-row">
-                  <span className="result-label">Decision</span>
-                  <span className={`result-value ${verifyResult.record.decision === "approved" ? "pass" : "fail"}`}>
+                <ResultRow label="Decision">
+                  <span className={verifyResult.record.decision === "approved" ? "text-green-400 text-sm" : "text-red-400 text-sm"}>
                     {verifyResult.record.decision}
                   </span>
-                </div>
+                </ResultRow>
 
-                <div className="result-row">
-                  <span className="result-label">Policy Result</span>
-                  <span className="result-value mono">{verifyResult.record.policy_result}</span>
-                </div>
+                <ResultRow label="Policy Result">
+                  <span className="font-mono text-xs text-slate-200">{verifyResult.record.policy_result}</span>
+                </ResultRow>
 
-                <div className="result-row">
-                  <span className="result-label">Vendor ID</span>
-                  <span className="result-value mono">{verifyResult.record.vendor_id}</span>
-                </div>
+                <ResultRow label="Vendor ID">
+                  <span className="font-mono text-xs text-slate-200">{verifyResult.record.vendor_id}</span>
+                </ResultRow>
 
-                <div className="result-row">
-                  <span className="result-label">Agent ID</span>
-                  <span className="result-value mono">{verifyResult.record.agent_id}</span>
-                </div>
+                <ResultRow label="Agent ID">
+                  <span className="font-mono text-xs text-slate-200">{verifyResult.record.agent_id}</span>
+                </ResultRow>
               </>
             )}
 
             {verifyResult.ipfs_data && verifyResult.ipfs_data.action_id && (
-              <div className="result-row">
-                <span className="result-label">IPFS Content</span>
+              <ResultRow label="IPFS Content">
                 <a
-                  className="result-link"
+                  className="font-mono text-xs text-violet-400 hover:text-violet-300 hover:underline"
                   href={`${IPFS_GATEWAY}/${verifyResult.ipfs_data.ipfs_cid || ""}`}
                   target="_blank"
                   rel="noreferrer"
                 >
                   View on IPFS ↗
                 </a>
-              </div>
+              </ResultRow>
             )}
 
           </div>
 
-          {/* Tamper detection demo — only show after successful verification */}
+          {/* Tamper detection demo — only after successful verification */}
           {verifyResult.hash_match && (
-            <div className="tamper-section">
-              <p className="tamper-intro">
+            <div className="bg-[#161926] border border-[#2d3248] rounded-xl p-5 flex flex-col gap-3">
+              <p className="text-sm text-slate-500">
                 Prove the system detects any modification to this record.
               </p>
 
               {tamperStatus === "idle" && (
-                <button className="btn-tamper" onClick={handleSimulateTamper}>
+                <button
+                  className="border border-amber-800 text-yellow-400 rounded-lg py-3 font-semibold text-sm hover:bg-amber-950 transition-colors cursor-pointer"
+                  onClick={handleSimulateTamper}
+                >
                   Simulate Tampering
                 </button>
               )}
 
               {tamperStatus === "loading" && (
-                <div className="tamper-loading">
-                  <div className="spinner spinner-sm" />
+                <div className="flex items-center gap-3 text-slate-500 text-sm">
+                  <div className="w-5 h-5 border-2 border-[#2d3248] border-t-violet-400 rounded-full animate-spin" />
                   <span>Simulating tampered record...</span>
                 </div>
               )}
 
-              {tamperError && (
-                <p className="error-msg">{tamperError}</p>
-              )}
+              {tamperError && <p className="text-sm text-red-400">{tamperError}</p>}
 
               {tamperStatus === "result" && tamperResult && (
-                <div className="tamper-result">
-                  <div className="tamper-header">
+                <div className="flex flex-col gap-3">
+
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                     Tamper Simulation Result
-                  </div>
+                  </span>
 
-                  <div className="tamper-change">
-                    Field modified: <span className="mono">{tamperResult.field_tampered}</span>
+                  <p className="text-sm text-slate-300 leading-relaxed">
+                    Field modified:{" "}
+                    <span className="font-mono text-xs">{tamperResult.field_tampered}</span>
                     {" "}changed from{" "}
-                    <span className="pass mono">₹{tamperResult.original_value}</span>
+                    <span className="text-green-400 font-mono text-xs">₹{tamperResult.original_value}</span>
                     {" "}to{" "}
-                    <span className="fail mono">₹{tamperResult.tampered_value}</span>
+                    <span className="text-red-400 font-mono text-xs">₹{tamperResult.tampered_value}</span>
+                  </p>
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex justify-between items-center py-2 border-b border-[#1e2130]">
+                      <span className="text-xs text-slate-500">Hash stored on-chain</span>
+                      <span className="font-mono text-xs text-slate-300" title={tamperResult.hash_onchain}>
+                        {truncate(tamperResult.hash_onchain, 22)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b border-[#1e2130]">
+                      <span className="text-xs text-slate-500">Original record hash</span>
+                      <span className="font-mono text-xs text-green-400" title={tamperResult.hash_original}>
+                        {truncate(tamperResult.hash_original, 22)} ✅
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-xs text-slate-500">Tampered record hash</span>
+                      <span className="font-mono text-xs text-red-400" title={tamperResult.hash_tampered}>
+                        {truncate(tamperResult.hash_tampered, 22)} ❌
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="tamper-rows">
-                    <div className="tamper-row">
-                      <span className="tamper-label">Hash stored on-chain</span>
-                      <span className="tamper-value mono" title={tamperResult.hash_onchain}>
-                        {truncate(tamperResult.hash_onchain, 24)}
-                      </span>
-                    </div>
-
-                    <div className="tamper-row">
-                      <span className="tamper-label">Original record hash</span>
-                      <span className="tamper-value pass mono" title={tamperResult.hash_original}>
-                        {truncate(tamperResult.hash_original, 24)} ✅ Match
-                      </span>
-                    </div>
-
-                    <div className="tamper-row">
-                      <span className="tamper-label">Tampered record hash</span>
-                      <span className="tamper-value fail mono" title={tamperResult.hash_tampered}>
-                        {truncate(tamperResult.hash_tampered, 24)} ❌ Mismatch
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="tamper-conclusion">
+                  <p className="text-xs text-slate-500 leading-relaxed border-t border-[#2d3248] pt-3">
                     Any modification to the audit record produces a different hash.
                     The on-chain hash is immutable — tampering is immediately detectable.
                   </p>
@@ -270,9 +278,13 @@ function VerifyAudit({ apiBase }) {
             </div>
           )}
 
-          <button className="btn-reset" onClick={handleReset}>
+          <button
+            className="border border-[#2d3248] text-slate-500 rounded-lg py-3 text-sm hover:text-slate-200 hover:border-slate-500 transition-colors cursor-pointer w-full"
+            onClick={handleReset}
+          >
             Verify Another
           </button>
+
         </div>
       )}
 
