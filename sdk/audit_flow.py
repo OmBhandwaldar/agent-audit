@@ -17,7 +17,7 @@ from hashlib import sha256
 
 from dotenv import load_dotenv
 
-from agent.payment_agent import decide_payment
+from agent.payment_agent import decide_payment, run_payment_agent
 from algorand.contract_client import submit_audit
 from ipfs.uploader import upload_to_ipfs
 
@@ -69,7 +69,7 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
     """
     # Step 1: Agent decision (amount only — vendor check is on-chain)
     logger.info("Running payment agent for amount: %d, vendor: %s", amount, vendor_id)
-    agent_decision, reason = decide_payment(amount, vendor_id)
+    agent_decision, reason = await run_payment_agent(amount, vendor_id)
     logger.info("Agent decision: %s", agent_decision)
 
     # Step 2: Build decision record

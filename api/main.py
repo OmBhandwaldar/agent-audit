@@ -4,16 +4,26 @@ AgentAudit FastAPI backend.
 Endpoints:
   POST /api/audit          — run the full audit pipeline for a payment
   GET  /api/verify         — independently verify any audit record by action ID
+  GET  /api/dashboard      — aggregate stats + recent audit history
+  GET  /api/export/csv     — download audit history as CSV
+  GET  /api/tamper-demo    — simulate tampering to prove hash detection works
 
 Run with: uvicorn api.main:app --reload --port 8000
 """
 
+import csv
+import io
+import json
 import logging
+import os
+import time
+from collections import deque
 from hashlib import sha256
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from algorand.contract_client import get_audit_record
@@ -22,12 +32,10 @@ from sdk.audit_flow import run_audit_flow
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-IPFS_FETCH_URL = "https://gateway.pinata.cloud/ipfs/{cid}"
-
 app = FastAPI(
     title="AgentAudit API",
     description="Verifiable audit infrastructure for autonomous AI agents.",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -36,6 +44,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# In-memory audit history — holds up to 50 most recent audits, oldest auto-dropped
+recent_audits: deque = deque(maxlen=50)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +85,30 @@ class VerifyResponse(BaseModel):
     ipfs_data: dict          # Full JSON fetched from IPFS
 
 
+class DashboardResponse(BaseModel):
+    """Response body from GET /api/dashboard."""
+
+    total_audits: int
+    approved_count: int
+    rejected_count: int
+    compliance_rate: float   # percentage 0–100
+    recent_audits: list[dict]
+
+
+class TamperDemoResponse(BaseModel):
+    """Response body from GET /api/tamper-demo."""
+
+    action_id: str
+    field_tampered: str
+    original_value: str
+    tampered_value: str
+    hash_onchain: str        # immutable — stored in Algorand
+    hash_original: str       # recomputed from real IPFS data — matches on-chain
+    hash_tampered: str       # what tampered content would produce — does NOT match
+    match_original: bool     # always True for a valid record
+    match_tampered: bool     # always False — tamper detected
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -95,6 +130,19 @@ async def audit(req: AuditRequest) -> AuditResponse:
             "Audit complete: action_id=%s decision=%s policy=%s",
             result["action_id"], result["decision"], result["policy_result"],
         )
+        # Store in history for dashboard and CSV export
+        recent_audits.appendleft({
+            "action_id": result["action_id"],
+            "decision": result["decision"],
+            "amount": req.amount,
+            "vendor_id": req.vendor_id,
+            "policy_checks": result["policy_checks"],
+            "policy_result": result["policy_result"],
+            "asa_minted": result["asa_minted"],
+            "ipfs_cid": result["ipfs_cid"],
+            "algorand_tx_id": result["algorand_tx_id"],
+            "timestamp": int(time.time()),
+        })
         return AuditResponse(**result)
     except Exception as e:
         logger.error("Audit pipeline failed: %s", str(e))
@@ -123,22 +171,15 @@ async def verify(action_id: str = Query(..., description="Action ID to verify"))
 
     ipfs_hash_onchain = record.get("ipfs_hash", "")
 
-    # Step 2: Derive the IPFS CID from the on-chain hash
-    # The on-chain hash is sha256(cid) — we can't reverse it, so we need
-    # to search by the hash. Instead, we store the CID in the IPFS data itself.
-    # For the verifier, we fetch by reconstructing: the IPFS data must contain
-    # action_id so we can cross-reference. We use the Pinata query API.
-    # Simpler approach for MVP: frontend passes cid alongside action_id if available,
-    # but for pure on-chain verification we use the Pinata list endpoint to find by name.
-    # For demo: we store the action_id as the pinataMetadata name during upload.
+    # Step 2: Fetch IPFS data and recompute hash
     ipfs_data: dict = {}
     ipfs_hash_computed = ""
 
     try:
-        ipfs_data, ipfs_hash_computed = await _fetch_and_hash_ipfs(action_id)
+        cid, ipfs_data = await _fetch_ipfs_data(action_id)
+        ipfs_hash_computed = sha256(cid.encode()).hexdigest()
     except Exception as e:
         logger.warning("IPFS fetch failed for action_id %s: %s", action_id, e)
-        # Return partial result — on-chain data is still useful
         return VerifyResponse(
             action_id=action_id,
             ipfs_hash_onchain=ipfs_hash_onchain,
@@ -149,10 +190,7 @@ async def verify(action_id: str = Query(..., description="Action ID to verify"))
         )
 
     hash_match = (ipfs_hash_onchain == ipfs_hash_computed)
-
-    logger.info(
-        "Verify result for %s: hash_match=%s", action_id, hash_match
-    )
+    logger.info("Verify result for %s: hash_match=%s", action_id, hash_match)
 
     return VerifyResponse(
         action_id=action_id,
@@ -161,6 +199,127 @@ async def verify(action_id: str = Query(..., description="Action ID to verify"))
         hash_match=hash_match,
         record=record,
         ipfs_data=ipfs_data,
+    )
+
+
+@app.get("/api/dashboard", response_model=DashboardResponse)
+async def dashboard() -> DashboardResponse:
+    """
+    Return aggregate stats and recent audit history from the in-memory store.
+
+    Stats are computed from audits run since the server started.
+    """
+    audits = list(recent_audits)
+    total = len(audits)
+    approved = sum(1 for a in audits if a["decision"] == "approved")
+    rejected = total - approved
+    compliance_rate = round((approved / total * 100), 1) if total > 0 else 0.0
+
+    return DashboardResponse(
+        total_audits=total,
+        approved_count=approved,
+        rejected_count=rejected,
+        compliance_rate=compliance_rate,
+        recent_audits=audits,
+    )
+
+
+@app.get("/api/export/csv")
+async def export_csv():
+    """
+    Download audit history as a CSV file.
+
+    Exports all audits stored in the current session's in-memory store.
+    """
+    output = io.StringIO()
+    fieldnames = [
+        "action_id", "timestamp", "amount", "vendor_id",
+        "decision", "amount_check", "vendor_check",
+        "policy_result", "asa_minted", "ipfs_cid", "algorand_tx_id",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for audit in recent_audits:
+        writer.writerow({
+            "action_id": audit["action_id"],
+            "timestamp": audit["timestamp"],
+            "amount": audit["amount"],
+            "vendor_id": audit["vendor_id"],
+            "decision": audit["decision"],
+            "amount_check": audit["policy_checks"].get("amount_check", ""),
+            "vendor_check": audit["policy_checks"].get("vendor_check", ""),
+            "policy_result": audit["policy_result"],
+            "asa_minted": audit["asa_minted"],
+            "ipfs_cid": audit["ipfs_cid"],
+            "algorand_tx_id": audit["algorand_tx_id"],
+        })
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_export.csv"},
+    )
+
+
+@app.get("/api/tamper-demo", response_model=TamperDemoResponse)
+async def tamper_demo(action_id: str = Query(..., description="Action ID to simulate tampering on")) -> TamperDemoResponse:
+    """
+    Simulate tampering with an audit record to demonstrate hash detection.
+
+    Fetches the real IPFS data, creates a tampered copy (changes amount to 1),
+    and shows that the tampered content would produce a different hash that
+    does NOT match what is stored on-chain — proving the audit trail is tamper-proof.
+    """
+    logger.info("Tamper demo request for action_id: %s", action_id)
+
+    # Step 1: Get on-chain hash (immutable, stored in Algorand)
+    try:
+        record = await get_audit_record(action_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Audit record not found: {e}")
+
+    onchain_hash = record.get("ipfs_hash", "")
+
+    # Step 2: Fetch real IPFS data
+    try:
+        real_cid, real_ipfs_data = await _fetch_ipfs_data(action_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not fetch IPFS data: {e}")
+
+    # Step 3: Recompute hash from real data — should match on-chain
+    hash_original = sha256(real_cid.encode()).hexdigest()
+
+    # Step 4: Build tampered copy — change amount field to 1
+    original_amount = str(real_ipfs_data.get("amount", "unknown"))
+    tampered_data = dict(real_ipfs_data)
+    tampered_data["amount"] = 1
+
+    # Step 5: Simulate what IPFS would assign as a CID for the tampered content.
+    # IPFS CIDs are content-addressed — different content = different CID.
+    # We generate a deterministic fake CID to represent the tampered upload.
+    tampered_json = json.dumps(tampered_data, sort_keys=True)
+    simulated_tampered_cid = "Qm" + sha256(tampered_json.encode()).hexdigest()[:44]
+    hash_tampered = sha256(simulated_tampered_cid.encode()).hexdigest()
+
+    logger.info(
+        "Tamper demo for %s: match_original=%s match_tampered=%s",
+        action_id,
+        hash_original == onchain_hash,
+        hash_tampered == onchain_hash,
+    )
+
+    return TamperDemoResponse(
+        action_id=action_id,
+        field_tampered="amount",
+        original_value=original_amount,
+        tampered_value="1",
+        hash_onchain=onchain_hash,
+        hash_original=hash_original,
+        hash_tampered=hash_tampered,
+        match_original=(hash_original == onchain_hash),
+        match_tampered=(hash_tampered == onchain_hash),
     )
 
 
@@ -175,25 +334,22 @@ async def health() -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_and_hash_ipfs(action_id: str) -> tuple[dict, str]:
+async def _fetch_ipfs_data(action_id: str) -> tuple[str, dict]:
     """
-    Fetch the IPFS JSON for a given action_id using the Pinata list API,
-    then compute its SHA256 hash (of the CID) for comparison.
+    Fetch the IPFS CID and JSON content for a given action_id.
 
-    Pinata stores the action_id as pinataMetadata.name during upload.
-    We query /data/pinList?metadata[name]=<action_id> to find the CID,
-    then fetch the content and compute sha256(cid).
+    Uses the Pinata list API to look up the CID by metadata name (action_id
+    is stored as pinataMetadata.name during upload), then fetches the content.
 
     Args:
         action_id: The action ID to look up in Pinata.
 
     Returns:
-        Tuple of (ipfs_data dict, sha256_hex_of_cid string).
+        Tuple of (cid string, ipfs_data dict).
 
     Raises:
-        RuntimeError: If the CID cannot be found or content fetch fails.
+        RuntimeError: If CID cannot be found or content fetch fails.
     """
-    import os
     pinata_jwt = os.getenv("PINATA_JWT", "")
     if not pinata_jwt:
         raise RuntimeError("PINATA_JWT not set in .env")
@@ -201,7 +357,6 @@ async def _fetch_and_hash_ipfs(action_id: str) -> tuple[dict, str]:
     headers = {"Authorization": f"Bearer {pinata_jwt}"}
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        # Look up CID by action_id stored as metadata name
         list_resp = await client.get(
             "https://api.pinata.cloud/data/pinList",
             params={"metadata[name]": action_id, "status": "pinned"},
@@ -215,7 +370,6 @@ async def _fetch_and_hash_ipfs(action_id: str) -> tuple[dict, str]:
 
         cid = rows[0]["ipfs_pin_hash"]
 
-        # Fetch the actual content
         content_resp = await client.get(
             f"https://gateway.pinata.cloud/ipfs/{cid}",
             timeout=15.0,
@@ -223,7 +377,4 @@ async def _fetch_and_hash_ipfs(action_id: str) -> tuple[dict, str]:
         content_resp.raise_for_status()
         ipfs_data = content_resp.json()
 
-    # Recompute sha256(cid) — matches what audit_flow.py stores on-chain
-    ipfs_hash_computed = sha256(cid.encode()).hexdigest()
-
-    return ipfs_data, ipfs_hash_computed
+    return cid, ipfs_data

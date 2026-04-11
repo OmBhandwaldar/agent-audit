@@ -1,12 +1,13 @@
 import { useState } from "react"
 import AuditResult from "./components/AuditResult"
 import VerifyAudit from "./components/VerifyAudit"
+import Dashboard from "./components/Dashboard"
 import "./App.css"
 
 const API_BASE = "http://localhost:8000"
 
 function App() {
-  const [activeTab, setActiveTab] = useState("run")  // "run" | "verify"
+  const [activeTab, setActiveTab] = useState("run")  // "run" | "verify" | "dashboard"
 
   // Run Agent tab state
   const [amountInput, setAmountInput] = useState("")
@@ -89,6 +90,12 @@ function App() {
         >
           Verify Audit
         </button>
+        <button
+          className={`tab-btn ${activeTab === "dashboard" ? "active" : ""}`}
+          onClick={() => handleTabSwitch("dashboard")}
+        >
+          Dashboard
+        </button>
       </div>
 
       <main className="main">
@@ -142,6 +149,11 @@ function App() {
         {/* Verify Audit tab */}
         {activeTab === "verify" && (
           <VerifyAudit apiBase={API_BASE} />
+        )}
+
+        {/* Dashboard tab */}
+        {activeTab === "dashboard" && (
+          <Dashboard apiBase={API_BASE} />
         )}
 
       </main>

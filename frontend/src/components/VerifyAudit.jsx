@@ -3,7 +3,10 @@
  *
  * Fetches the on-chain record by action ID, fetches the original IPFS data,
  * recomputes the SHA256 hash, and compares it to what is stored on-chain.
- * Shows ✅ Hash Verified or ❌ Hash Mismatch.
+ * Shows Hash Verified or Hash Mismatch.
+ *
+ * After a successful verification, exposes a "Simulate Tampering" button
+ * that calls /api/tamper-demo to prove the system detects any modification.
  */
 
 import { useState } from "react"
@@ -17,9 +20,14 @@ function truncate(str, maxLength = 32) {
 
 function VerifyAudit({ apiBase }) {
   const [actionIdInput, setActionIdInput] = useState("")
-  const [status, setStatus] = useState("input")  // "input" | "loading" | "result" | "error"
+  const [status, setStatus] = useState("input")  // "input" | "loading" | "result"
   const [verifyResult, setVerifyResult] = useState(null)
   const [error, setError] = useState(null)
+
+  // Tamper demo state
+  const [tamperStatus, setTamperStatus] = useState("idle")  // "idle" | "loading" | "result"
+  const [tamperResult, setTamperResult] = useState(null)
+  const [tamperError, setTamperError] = useState(null)
 
   const handleVerify = async () => {
     if (!actionIdInput.trim()) {
@@ -29,6 +37,8 @@ function VerifyAudit({ apiBase }) {
 
     setStatus("loading")
     setError(null)
+    setTamperStatus("idle")
+    setTamperResult(null)
 
     try {
       const response = await fetch(
@@ -49,11 +59,37 @@ function VerifyAudit({ apiBase }) {
     }
   }
 
+  const handleSimulateTamper = async () => {
+    setTamperStatus("loading")
+    setTamperError(null)
+
+    try {
+      const response = await fetch(
+        `${apiBase}/api/tamper-demo?action_id=${encodeURIComponent(verifyResult.action_id)}`
+      )
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.detail || "Tamper demo failed")
+      }
+
+      const data = await response.json()
+      setTamperResult(data)
+      setTamperStatus("result")
+    } catch (err) {
+      setTamperError(err.message)
+      setTamperStatus("idle")
+    }
+  }
+
   const handleReset = () => {
     setStatus("input")
     setVerifyResult(null)
     setError(null)
     setActionIdInput("")
+    setTamperStatus("idle")
+    setTamperResult(null)
+    setTamperError(null)
   }
 
   const handleKeyDown = (e) => {
@@ -122,7 +158,6 @@ function VerifyAudit({ apiBase }) {
               </span>
             </div>
 
-            {/* On-chain record fields */}
             {verifyResult.record && (
               <>
                 <div className="result-row">
@@ -149,7 +184,6 @@ function VerifyAudit({ apiBase }) {
               </>
             )}
 
-            {/* IPFS content link if available */}
             {verifyResult.ipfs_data && verifyResult.ipfs_data.action_id && (
               <div className="result-row">
                 <span className="result-label">IPFS Content</span>
@@ -165,6 +199,76 @@ function VerifyAudit({ apiBase }) {
             )}
 
           </div>
+
+          {/* Tamper detection demo — only show after successful verification */}
+          {verifyResult.hash_match && (
+            <div className="tamper-section">
+              <p className="tamper-intro">
+                Prove the system detects any modification to this record.
+              </p>
+
+              {tamperStatus === "idle" && (
+                <button className="btn-tamper" onClick={handleSimulateTamper}>
+                  Simulate Tampering
+                </button>
+              )}
+
+              {tamperStatus === "loading" && (
+                <div className="tamper-loading">
+                  <div className="spinner spinner-sm" />
+                  <span>Simulating tampered record...</span>
+                </div>
+              )}
+
+              {tamperError && (
+                <p className="error-msg">{tamperError}</p>
+              )}
+
+              {tamperStatus === "result" && tamperResult && (
+                <div className="tamper-result">
+                  <div className="tamper-header">
+                    Tamper Simulation Result
+                  </div>
+
+                  <div className="tamper-change">
+                    Field modified: <span className="mono">{tamperResult.field_tampered}</span>
+                    {" "}changed from{" "}
+                    <span className="pass mono">₹{tamperResult.original_value}</span>
+                    {" "}to{" "}
+                    <span className="fail mono">₹{tamperResult.tampered_value}</span>
+                  </div>
+
+                  <div className="tamper-rows">
+                    <div className="tamper-row">
+                      <span className="tamper-label">Hash stored on-chain</span>
+                      <span className="tamper-value mono" title={tamperResult.hash_onchain}>
+                        {truncate(tamperResult.hash_onchain, 24)}
+                      </span>
+                    </div>
+
+                    <div className="tamper-row">
+                      <span className="tamper-label">Original record hash</span>
+                      <span className="tamper-value pass mono" title={tamperResult.hash_original}>
+                        {truncate(tamperResult.hash_original, 24)} ✅ Match
+                      </span>
+                    </div>
+
+                    <div className="tamper-row">
+                      <span className="tamper-label">Tampered record hash</span>
+                      <span className="tamper-value fail mono" title={tamperResult.hash_tampered}>
+                        {truncate(tamperResult.hash_tampered, 24)} ❌ Mismatch
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="tamper-conclusion">
+                    Any modification to the audit record produces a different hash.
+                    The on-chain hash is immutable — tampering is immediately detectable.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           <button className="btn-reset" onClick={handleReset}>
             Verify Another

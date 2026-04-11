@@ -64,42 +64,47 @@ async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
     Note: vendor check is enforced on-chain, not by the agent.
     Returns (decision, reason) where decision is "approved" or "rejected".
 
+    Uses LangChain 1.x API (create_tool_calling_agent + AgentExecutor).
+    Falls back to decide_payment() on any failure.
+
     Args:
         amount: Payment amount to evaluate.
         vendor_id: Vendor identifier (passed through for logging; not checked here).
     """
-    from langchain.agents import AgentType, initialize_agent
-    from langchain.tools import tool
-    from langchain_openai import ChatOpenAI
-
-    @tool
-    def check_payment_policy(amount: int) -> str:
-        """Check if a payment amount is within policy limits. Always use this tool."""
-        if amount < POLICY_LIMIT:
-            return f"approved: amount {amount} is within limit {POLICY_LIMIT}"
-        return f"rejected: amount {amount} exceeds limit {POLICY_LIMIT}"
-
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    agent = initialize_agent(
-        tools=[check_payment_policy],
-        llm=llm,
-        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-        verbose=False,
-    )
-
-    prompt = (
-        f"You are a payment approval agent. "
-        f"Use the check_payment_policy tool to decide whether to approve "
-        f"or reject a payment of amount {amount}. Always use the tool."
-    )
-
     try:
-        output = await agent.arun(prompt)
-        output_lower = output.lower()
+        from langchain.agents import AgentExecutor, create_tool_calling_agent
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        from langchain_core.tools import tool
+        from langchain_openai import ChatOpenAI
+
+        @tool
+        def check_payment_policy(amount: int) -> str:
+            """Check if a payment amount is within policy limits. Always use this tool."""
+            if amount < POLICY_LIMIT:
+                return f"approved: amount {amount} is within limit {POLICY_LIMIT}"
+            return f"rejected: amount {amount} exceeds limit {POLICY_LIMIT}"
+
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a payment approval agent. Use the check_payment_policy tool to decide whether to approve or reject the payment. Always use the tool."),
+            ("human", "{input}"),
+            MessagesPlaceholder("agent_scratchpad"),
+        ])
+
+        agent = create_tool_calling_agent(llm, [check_payment_policy], prompt)
+        executor = AgentExecutor(agent=agent, tools=[check_payment_policy], verbose=False)
+
+        result = await executor.ainvoke(
+            {"input": f"Should I approve a payment of amount {amount}?"}
+        )
+        output = result.get("output", "")
         logger.info("LangChain agent output for vendor %s: %s", vendor_id, output.strip())
-        if "approved" in output_lower:
+
+        if "approved" in output.lower():
             return "approved", output.strip()
         return "rejected", output.strip()
+
     except Exception as e:
         logger.warning("LangChain agent failed, falling back to decide_payment: %s", e)
         return decide_payment(amount, vendor_id)
