@@ -59,6 +59,7 @@ class AuditRequest(BaseModel):
 
     amount: int = Field(..., gt=0, description="Payment amount to evaluate")
     vendor_id: str = Field(..., min_length=1, description="Vendor identifier to check against whitelist")
+    agent_type_id: str = Field(default="payment_approval", description="Agent type identifier")
 
 
 class AuditResponse(BaseModel):
@@ -72,6 +73,8 @@ class AuditResponse(BaseModel):
     action_id: str
     vendor_id: str
     policy_checks: dict
+    agent_type_id: str
+    agent_id: str
 
 
 class VerifyResponse(BaseModel):
@@ -125,7 +128,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
     """
     logger.info("Received audit request: amount=%d vendor_id=%s", req.amount, req.vendor_id)
     try:
-        result = await run_audit_flow(req.amount, req.vendor_id)
+        result = await run_audit_flow(req.amount, req.vendor_id, req.agent_type_id)
         logger.info(
             "Audit complete: action_id=%s decision=%s policy=%s",
             result["action_id"], result["decision"], result["policy_result"],
@@ -136,6 +139,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
             "decision": result["decision"],
             "amount": req.amount,
             "vendor_id": req.vendor_id,
+            "agent_type_id": result["agent_type_id"],
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
             "asa_minted": result["asa_minted"],

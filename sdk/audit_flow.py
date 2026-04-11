@@ -44,7 +44,13 @@ def _parse_policy_result(policy_result: str) -> dict:
     return checks
 
 
-async def run_audit_flow(amount: int, vendor_id: str) -> dict:
+AGENT_TYPE_CONFIG = {
+    "payment_approval":  {"action": "approve_payment",    "agent_id_suffix": "payment_agent"},
+    "vendor_onboarding": {"action": "vendor_onboarding",  "agent_id_suffix": "vendor_agent"},
+    "expense_claim":     {"action": "expense_claim",       "agent_id_suffix": "expense_agent"},
+}
+
+async def run_audit_flow(amount: int, vendor_id: str, agent_type_id: str = "payment_approval") -> dict:
     """
     Run the full audit pipeline for a payment approval request.
 
@@ -68,7 +74,10 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
         RuntimeError: If any step in the pipeline fails.
     """
     # Step 1: Agent decision (amount only — vendor check is on-chain)
-    logger.info("Running payment agent for amount: %d, vendor: %s", amount, vendor_id)
+    type_config = AGENT_TYPE_CONFIG.get(agent_type_id, AGENT_TYPE_CONFIG["payment_approval"])
+    action_name = type_config["action"]
+    agent_id = f"{type_config['agent_id_suffix']}_001"
+    logger.info("Running %s agent for amount: %d, vendor: %s", agent_type_id, amount, vendor_id)
     agent_decision, reason = await run_payment_agent(amount, vendor_id)
     logger.info("Agent decision: %s", agent_decision)
 
@@ -77,13 +86,14 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
     action_id = f"{timestamp}_{random.randint(1000, 9999)}"
 
     record = {
-        "action": "approve_payment",
+        "action": action_name,
+        "agent_type": agent_type_id,
         "amount": amount,
         "vendor_id": vendor_id,
         "agent_decision": agent_decision,  # what the agent decided (amount only)
         "reason": reason,
         "policy": POLICY_ID,
-        "agent_id": AGENT_ID,
+        "agent_id": agent_id,
         "timestamp": timestamp,
     }
 
@@ -129,4 +139,6 @@ async def run_audit_flow(amount: int, vendor_id: str) -> dict:
         "action_id": action_id,
         "vendor_id": vendor_id,
         "policy_checks": policy_checks,
+        "agent_type_id": agent_type_id,
+        "agent_id": agent_id,
     }

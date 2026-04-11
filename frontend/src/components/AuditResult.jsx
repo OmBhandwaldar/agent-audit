@@ -56,6 +56,10 @@ function AuditResult({ result, onReset, agentType }) {
           <PolicyBadge value={checks.vendor_check} />
         </ResultRow>
 
+        <ResultRow label="Agent Type">
+          <span className="text-sm text-violet-400 font-medium">{agentType?.label || result.agent_type_id}</span>
+        </ResultRow>
+
         <ResultRow label={agentType?.field2Label || "Vendor ID"}>
           <span className="font-mono text-xs text-slate-200">{result.vendor_id}</span>
         </ResultRow>

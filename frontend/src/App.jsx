@@ -76,7 +76,7 @@ function App() {
       const response = await fetch(`${API_BASE}/api/audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, vendor_id: vendorInput.trim() }),
+        body: JSON.stringify({ amount, vendor_id: vendorInput.trim(), agent_type_id: agentType.id }),
       })
 
       if (!response.ok) {

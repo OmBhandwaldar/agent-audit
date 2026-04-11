@@ -137,7 +137,7 @@ function Dashboard({ apiBase }) {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {["Action ID", "Amount", "Vendor", "Decision", "Time"].map(h => (
+                  {["Action ID", "Agent Type", "Amount", "Vendor", "Decision", "Time"].map(h => (
                     <th key={h} className="bg-[#161926] text-slate-500 text-xs uppercase tracking-wider px-3 py-2.5 text-left border-b border-[#2d3248]">
                       {h}
                     </th>
@@ -155,6 +155,9 @@ function Dashboard({ apiBase }) {
                   >
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-300">
                       {copied === audit.action_id ? "Copied!" : truncate(audit.action_id)}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-violet-400">
+                      {audit.agent_type_id?.replace(/_/g, " ") || "payment approval"}
                     </td>
                     <td className="px-3 py-2.5 text-slate-300">₹{audit.amount}</td>
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-300">{audit.vendor_id}</td>
