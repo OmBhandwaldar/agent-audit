@@ -152,6 +152,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
         recent_audits.appendleft({
             "action_id": result["action_id"],
             "decision": result["decision"],
+            "agent_decision": result["agent_decision"],
             "amount": req.amount,
             "vendor_id": req.vendor_id,
             "agent_type_id": result["agent_type_id"],
@@ -191,6 +192,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         recent_audits.appendleft({
             "action_id": result["action_id"],
             "decision": result["decision"],
+            "agent_decision": result["agent_decision"],
             "amount": result.get("amount", 0),
             "vendor_id": result["vendor_id"],
             "agent_type_id": result["agent_type_id"],
