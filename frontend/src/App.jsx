@@ -1,59 +1,54 @@
-import { useState } from "react"
+import { Routes, Route, useNavigate } from "react-router-dom"
 import ChatAgent from "./components/ChatAgent"
-import VerifyAudit from "./components/VerifyAudit"
-import Dashboard from "./components/Dashboard"
-import SdkIntegration from "./components/SdkIntegration"
+import LandingPage from "./components/LandingPage"
+import AuditDashboardPage from "./components/AuditDashboardPage"
 import "./index.css"
 
 const API_BASE = "http://localhost:8000"
 
-const TABS = [
-  { id: "run", label: "Run Agent" },
-  { id: "verify", label: "Verify Audit" },
-  { id: "dashboard", label: "Dashboard" },
-  { id: "integrate", label: "Integrate" },
-]
-
-function App() {
-  const [activeTab, setActiveTab] = useState("run")
+function AppShell() {
+  const navigate = useNavigate()
 
   return (
-    <div className="min-h-screen flex flex-col items-center px-4 py-10 bg-[#0f1117] text-slate-200 font-sans">
+    <div className="min-h-screen flex flex-col items-center px-4 py-10 bg-[#0e0e0e] text-white font-sans">
 
-      <header className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-violet-400 tracking-tight">AgentAudit</h1>
-        <p className="mt-2 text-sm text-slate-500">Verifiable audit infrastructure for autonomous AI agents</p>
+      <header className="text-center mb-8 relative w-full max-w-2xl">
+        <button
+          onClick={() => navigate("/")}
+          className="absolute left-0 top-0 flex items-center gap-1.5 text-xs text-[#484847] hover:text-[#adaaaa] transition-colors"
+        >
+          <span className="material-symbols-outlined text-sm">arrow_back</span>
+          Home
+        </button>
+        <h1 className="headline text-3xl font-bold text-[#ff4f00] tracking-tight">AgentAudit</h1>
+        <p className="mt-2 text-sm text-[#767575] font-label">Verifiable audit infrastructure for autonomous AI agents</p>
       </header>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-[#1e2130] border border-[#2d3248] rounded-xl p-1 mb-6 w-full max-w-2xl">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer
-              ${activeTab === tab.id
-                ? "bg-[#2d3248] text-violet-400"
-                : "text-slate-500 hover:text-slate-200"
-              }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       <main className="w-full max-w-2xl flex-1">
-        {activeTab === "run"       && <ChatAgent apiBase={API_BASE} />}
-        {activeTab === "verify"    && <VerifyAudit apiBase={API_BASE} />}
-        {activeTab === "dashboard" && <Dashboard apiBase={API_BASE} />}
-        {activeTab === "integrate" && <SdkIntegration />}
+        <ChatAgent apiBase={API_BASE} />
       </main>
 
-      <footer className="mt-12 text-xs text-slate-700 text-center">
+      <footer className="mt-12 text-xs text-[#2a2a2a] text-center font-mono tracking-wider uppercase">
         AgentAudit · AlgoBharat Hack Series 3.0 · Algorand Testnet
       </footer>
 
     </div>
+  )
+}
+
+function LandingGate() {
+  const navigate = useNavigate()
+  return <LandingPage onEnterApp={() => navigate("/app")} />
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/"          element={<LandingGate />} />
+      <Route path="/app"       element={<AppShell />} />
+      <Route path="/dashboard" element={<AuditDashboardPage apiBase={API_BASE} />} />
+      <Route path="*"          element={<LandingGate />} />
+    </Routes>
   )
 }
 
