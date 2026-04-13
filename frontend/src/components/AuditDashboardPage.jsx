@@ -141,7 +141,12 @@ function AuditRow({ audit, copied, onCopy }) {
         {audit.vendor_id}
       </td>
 
-      {/* Decision */}
+      {/* Agent decision */}
+      <td className="px-5 py-3.5">
+        <DecisionBadge decision={audit.agent_decision} />
+      </td>
+
+      {/* Policy decision */}
       <td className="px-5 py-3.5">
         <DecisionBadge decision={audit.decision} />
       </td>
@@ -332,16 +337,15 @@ function VerifyModal({ apiBase, onClose }) {
         shadow-[0_0_80px_-20px_rgba(255,79,0,0.25)] flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-[#1a1919] shrink-0">
-          <span className="material-symbols-outlined text-base text-[#ff4f00]"
-            style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
-          <h2 className="headline font-bold text-white tracking-tight">Verify Audit Record</h2>
-          <span className="text-[10px] text-[#484847] font-label ml-2 hidden sm:block">
-            Hash verification · Algorand + IPFS
-          </span>
+        <div className="relative flex items-center justify-center px-5 py-4 border-b border-[#1a1919] shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-base text-[#ff4f00]"
+              style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
+            <h2 className="headline font-bold text-white tracking-tight">Verify Audit Record</h2>
+          </div>
           <button
             onClick={onClose}
-            className="ml-auto w-7 h-7 flex items-center justify-center rounded-lg
+            className="absolute right-4 w-7 h-7 flex items-center justify-center rounded-lg
               text-[#484847] hover:text-white hover:bg-[#1a1919] transition-all duration-150 cursor-pointer"
           >
             <span className="material-symbols-outlined text-base">close</span>
@@ -765,7 +769,7 @@ function AuditDashboardPage({ apiBase }) {
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-[#1a1919]">
-                    {["Action ID", "Agent", "Amount", "Vendor", "Decision", "IPFS", "Algorand TX", "Time"].map(h => (
+                    {["Action ID", "Agent", "Amount", "Vendor", "Agent Decision", "Policy Decision", "IPFS", "Algorand TX", "Time"].map(h => (
                       <th key={h}
                         className="px-5 py-3 text-left text-[10px] font-label font-semibold
                           text-[#484847] uppercase tracking-widest whitespace-nowrap bg-[#0a0a0a]">
