@@ -1,15 +1,13 @@
 /**
- * ChatAgent — Tab 1 (Run Agent) replacement.
- *
- * Replaces the structured form with a chat interface.
- * User types a natural language task. The autonomous agent picks
- * a vendor and price, runs the full audit pipeline, and replies in chat.
+ * ChatAgent — Tab 1 (Run Agent).
+ * Restyled to match LandingPage design system:
+ * #0e0e0e bg · #ff4f00 primary · Space Grotesk headlines · Inter body.
  */
 
 import { useState, useEffect, useRef } from "react"
 
 const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs"
-const TX_EXPLORER = "https://testnet.explorer.perawallet.app/tx"
+const TX_EXPLORER  = "https://testnet.explorer.perawallet.app/tx"
 
 const EXAMPLE_PROMPTS = [
   "Find a vendor for office electronics and finalize the payment",
@@ -19,63 +17,66 @@ const EXAMPLE_PROMPTS = [
 
 function truncate(str, max = 20) {
   if (!str || str.length <= max) return str
-  return str.slice(0, max) + "..."
+  return str.slice(0, max) + "…"
 }
 
+/* ─── Audit summary card ─────────────────────────────────────────────────── */
+
 function AuditSummary({ audit }) {
-  const isApproved = audit.decision === "approved"
+  const approved = audit.decision === "approved"
   return (
-    <div className={`mt-3 rounded-lg border p-3 flex flex-col gap-2 text-xs
-      ${isApproved ? "bg-green-950 border-green-800" : "bg-red-950 border-red-900"}`}>
-      <div className="flex items-center gap-2">
-        <span className={`font-bold text-sm ${isApproved ? "text-green-400" : "text-red-400"}`}>
-          {isApproved ? "✅ Approved" : "❌ Rejected"}
-        </span>
-        <span className="text-slate-500">·</span>
-        <span className="text-slate-400 font-mono">{audit.policy_result}</span>
-      </div>
-      <div className="flex flex-col gap-1 text-slate-400">
-        <div className="flex gap-2">
-          <span className="text-slate-500 w-20 shrink-0">IPFS</span>
-          <a
-            href={`${IPFS_GATEWAY}/${audit.ipfs_cid}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-violet-400 hover:underline font-mono"
-          >
-            {truncate(audit.ipfs_cid)}
-          </a>
-        </div>
-        <div className="flex gap-2">
-          <span className="text-slate-500 w-20 shrink-0">Algorand</span>
-          <a
-            href={`${TX_EXPLORER}/${audit.algorand_tx_id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-violet-400 hover:underline font-mono"
-          >
-            {truncate(audit.algorand_tx_id)}
-          </a>
-        </div>
-        <div className="flex gap-2">
-          <span className="text-slate-500 w-20 shrink-0">Action ID</span>
-          <span className="font-mono text-slate-300">{audit.action_id}</span>
-        </div>
-        <div className="flex gap-2">
-          <span className="text-slate-500 w-20 shrink-0">ASA Minted</span>
-          <span className={audit.asa_minted ? "text-green-400" : "text-slate-500"}>
-            {audit.asa_minted ? "1 AACR minted" : "Not minted"}
+    <div className="mt-3 rounded-xl border border-[#2a2a2a] bg-[#0e0e0e] p-4 flex flex-col gap-3">
+
+      {/* Decision badge */}
+      <div className="flex items-center gap-2.5">
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold font-label border
+          ${approved
+            ? "bg-[#26fedc]/8 text-[#26fedc] border-[#26fedc]/20"
+            : "bg-[#ff4f00]/8 text-[#ff4f00]  border-[#ff4f00]/20"
+          }`}>
+          <span className="material-symbols-outlined text-[10px]"
+            style={{ fontVariationSettings: "'FILL' 1" }}>
+            {approved ? "check_circle" : "cancel"}
           </span>
-        </div>
+          {approved ? "Approved" : "Rejected"}
+        </span>
+        <span className="font-mono text-[10px] text-[#484847]">{audit.policy_result}</span>
+      </div>
+
+      {/* Links grid */}
+      <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-1.5 text-[11px]">
+        <span className="text-[#767575] font-label uppercase tracking-wider self-center">IPFS</span>
+        <a href={`${IPFS_GATEWAY}/${audit.ipfs_cid}`} target="_blank" rel="noreferrer"
+          className="font-mono text-[#ff4f00]/70 hover:text-[#ff4f00] transition-colors truncate">
+          {truncate(audit.ipfs_cid, 24)}
+        </a>
+
+        <span className="text-[#767575] font-label uppercase tracking-wider self-center">Algorand</span>
+        <a href={`${TX_EXPLORER}/${audit.algorand_tx_id}`} target="_blank" rel="noreferrer"
+          className="font-mono text-[#ff4f00]/70 hover:text-[#ff4f00] transition-colors truncate">
+          {truncate(audit.algorand_tx_id, 24)}
+        </a>
+
+        <span className="text-[#767575] font-label uppercase tracking-wider self-center">Action ID</span>
+        <span className="font-mono text-[#adaaaa] truncate">{audit.action_id}</span>
+
+        <span className="text-[#767575] font-label uppercase tracking-wider self-center">Receipt</span>
+        <span className={`font-label font-medium ${audit.asa_minted ? "text-[#26fedc]" : "text-[#484847]"}`}>
+          {audit.asa_minted ? "1 AACR minted" : "Not minted"}
+        </span>
       </div>
     </div>
   )
 }
 
+/* ─── Message bubbles ────────────────────────────────────────────────────── */
+
 function UserBubble({ text }) {
   return (
     <div className="flex justify-end">
-      <div className="bg-violet-400 text-[#0f1117] rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-[80%] text-sm font-medium">
+      <div className="bg-[#ff4f00] text-white rounded-2xl rounded-tr-sm px-4 py-2.5
+        max-w-[78%] text-sm font-label font-medium leading-relaxed
+        shadow-[0_4px_20px_-6px_rgba(255,79,0,0.45)]">
         {text}
       </div>
     </div>
@@ -83,58 +84,73 @@ function UserBubble({ text }) {
 }
 
 function AgentBubble({ text, auditResult, loading }) {
-  // Render **bold** markdown in agent reply
   const renderText = (raw) => {
     const parts = raw.split(/(\*\*[^*]+\*\*)/)
     return parts.map((part, i) =>
       part.startsWith("**") && part.endsWith("**")
-        ? <strong key={i} className="text-slate-100">{part.slice(2, -2)}</strong>
+        ? <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>
         : <span key={i}>{part}</span>
     )
   }
 
   return (
-    <div className="flex justify-start">
-      <div className="flex flex-col gap-1 max-w-[85%]">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-6 h-6 rounded-full bg-violet-400 flex items-center justify-center text-[10px] font-bold text-[#0f1117]">
-            AI
-          </div>
-          <span className="text-xs text-slate-500">AgentAudit</span>
-        </div>
-        <div className="bg-[#1e2130] border border-[#2d3248] rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-300 leading-relaxed">
+    <div className="flex justify-start gap-2.5">
+
+      {/* Avatar */}
+      <div className="w-7 h-7 rounded-lg bg-[#ff4f00]/15 border border-[#ff4f00]/25
+        flex items-center justify-center shrink-0 mt-0.5">
+        <span className="material-symbols-outlined text-[13px] text-[#ff4f00]"
+          style={{ fontVariationSettings: "'FILL' 1" }}>
+          smart_toy
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-1 max-w-[84%]">
+        <span className="text-[10px] text-[#767575] font-label uppercase tracking-wider mb-0.5">
+          AgentAudit
+        </span>
+
+        <div className="bg-[#131313] border border-[#2a2a2a] rounded-2xl rounded-tl-sm
+          px-4 py-3 text-sm text-[#adaaaa] leading-relaxed font-body">
           {loading ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 py-0.5">
               <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                {[0, 150, 300].map(delay => (
+                  <span key={delay}
+                    className="w-1.5 h-1.5 bg-[#ff4f00] rounded-full animate-bounce"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
               </div>
-              <span className="text-slate-500 text-xs">Searching vendors and processing...</span>
+              <span className="text-[#767575] text-xs">Searching vendors and processing…</span>
             </div>
           ) : (
             renderText(text)
           )}
         </div>
+
         {auditResult && <AuditSummary audit={auditResult} />}
       </div>
+
     </div>
   )
 }
+
+/* ─── Main component ─────────────────────────────────────────────────────── */
 
 function ChatAgent({ apiBase }) {
   const [messages, setMessages] = useState([
     {
       id: "welcome",
       role: "agent",
-      text: "I'm your autonomous procurement agent. Tell me what you need — I'll find the right vendor, negotiate the price, and record everything on-chain.\n\nTry: \"Find a vendor for office electronics and finalize the payment\"",
+      text: "I'm your autonomous procurement agent. Tell me what you need — I'll find the right vendor, negotiate the price, and record everything on-chain.\n\nTry: **\"Find a vendor for office electronics and finalize the payment\"**",
       auditResult: null,
     },
   ])
-  const [input, setInput] = useState("")
+  const [input,   setInput]   = useState("")
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef(null)
-  const inputRef = useRef(null)
+  const inputRef  = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -154,12 +170,10 @@ function ChatAgent({ apiBase }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userText, agent_type_id: "payment_approval" }),
       })
-
       if (!response.ok) {
         const err = await response.json()
         throw new Error(err.detail || "Request failed")
       }
-
       const data = await response.json()
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
@@ -187,35 +201,56 @@ function ChatAgent({ apiBase }) {
     }
   }
 
-  return (
-    <div className="flex flex-col bg-[#1e2130] border border-[#2d3248] rounded-xl overflow-hidden" style={{ height: "600px" }}>
+  const hasUserMessages = messages.some(m => m.role === "user")
 
-      {/* Header */}
-      <div className="px-5 py-3.5 border-b border-[#2d3248] flex items-center gap-3">
-        <div className="w-2 h-2 rounded-full bg-green-400" />
-        <span className="text-sm font-semibold text-slate-200">Autonomous Procurement Agent</span>
-        <span className="ml-auto text-xs text-slate-600">Groq · LLaMA 3.3 70B</span>
+  return (
+    <div className="flex flex-col rounded-2xl overflow-hidden border border-[#2a2a2a] bg-[#0e0e0e]
+      shadow-[0_0_40px_-10px_rgba(255,79,0,0.12)]"
+      style={{ height: "600px" }}>
+
+      {/* ── Header ── */}
+      <div className="px-5 py-3.5 bg-[#0a0a0a] border-b border-[#1a1919] flex items-center gap-3 shrink-0">
+        {/* Traffic lights */}
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+        </div>
+
+        <div className="w-px h-4 bg-[#2a2a2a] mx-1" />
+
+        <span className="text-sm font-semibold text-white headline tracking-tight">
+          Autonomous Procurement Agent
+        </span>
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#28c840] animate-pulse" />
+          {/* <span className="text-[10px] text-[#767575] font-mono">Groq · LLaMA 3.3 70B</span> */}
+        </div>
       </div>
 
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
+      {/* ── Messages ── */}
+      <div className="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-5">
         {messages.map(msg =>
           msg.role === "user"
-            ? <UserBubble key={msg.id} text={msg.text} />
-            : <AgentBubble key={msg.id} text={msg.text} auditResult={msg.auditResult} />
+            ? <UserBubble    key={msg.id} text={msg.text} />
+            : <AgentBubble   key={msg.id} text={msg.text} auditResult={msg.auditResult} />
         )}
         {loading && <AgentBubble loading text="" />}
         <div ref={bottomRef} />
       </div>
 
-      {/* Example prompts — shown only when no user messages yet */}
-      {messages.filter(m => m.role === "user").length === 0 && (
-        <div className="px-4 pb-2 flex flex-wrap gap-2">
+      {/* ── Example prompts ── */}
+      {!hasUserMessages && (
+        <div className="px-5 pb-3 flex flex-wrap gap-2 shrink-0">
           {EXAMPLE_PROMPTS.map(p => (
             <button
               key={p}
               onClick={() => sendMessage(p)}
-              className="text-xs bg-[#161926] border border-[#2d3248] text-slate-400 rounded-full px-3 py-1.5 hover:border-violet-400 hover:text-violet-400 transition-colors cursor-pointer"
+              className="text-[11px] font-label bg-[#131313] border border-[#2a2a2a]
+                text-[#767575] rounded-full px-3 py-1.5
+                hover:border-[#ff4f00]/40 hover:text-[#ff4f00]
+                transition-all duration-150 cursor-pointer"
             >
               {p}
             </button>
@@ -223,13 +258,17 @@ function ChatAgent({ apiBase }) {
         </div>
       )}
 
-      {/* Input bar */}
-      <div className="px-4 pb-4 pt-2 border-t border-[#2d3248] flex gap-2">
+      {/* ── Input bar ── */}
+      <div className="px-4 pb-4 pt-3 border-t border-[#1a1919] flex gap-2 shrink-0 bg-[#0a0a0a]">
         <input
           ref={inputRef}
           type="text"
-          className="flex-1 bg-[#0f1117] border border-[#2d3248] rounded-xl px-4 py-3 text-sm text-slate-200 outline-none focus:border-violet-400 transition-colors placeholder:text-slate-600"
-          placeholder="Tell the agent what to do..."
+          className="flex-1 bg-[#131313] border border-[#2a2a2a] rounded-xl px-4 py-3
+            text-sm text-white font-body outline-none
+            focus:border-[#ff4f00]/50 transition-colors duration-150
+            placeholder:text-[#484847]
+            disabled:opacity-50"
+          placeholder="Tell the agent what to do…"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -239,9 +278,14 @@ function ChatAgent({ apiBase }) {
         <button
           onClick={() => sendMessage(input)}
           disabled={loading || !input.trim()}
-          className="bg-violet-400 text-[#0f1117] rounded-xl px-4 py-3 font-bold text-sm hover:bg-violet-300 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-[#ff4f00] text-white rounded-xl px-5 py-3 font-bold text-sm headline
+            hover:scale-95 active:opacity-80 transition-all duration-150 cursor-pointer
+            disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100
+            shadow-[0_4px_16px_-4px_rgba(255,79,0,0.5)]"
         >
-          Send
+          <span className="material-symbols-outlined text-base" style={{ fontVariationSettings: "'FILL' 1" }}>
+            send
+          </span>
         </button>
       </div>
 
