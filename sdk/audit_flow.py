@@ -132,6 +132,7 @@ async def run_audit_flow(amount: int, vendor_id: str, agent_type_id: str = "paym
 
     return {
         "decision": effective_decision,
+        "agent_decision": agent_decision,
         "ipfs_cid": ipfs_cid,
         "algorand_tx_id": tx_result.tx_id,
         "policy_result": tx_result.policy_result,
@@ -219,22 +220,11 @@ async def run_chat_flow(prompt: str, agent_type_id: str = "payment_approval") ->
         agent_reply = (
             f"I've reviewed the available vendors and selected **{vendor_name} ({vendor_id})** "
             f"at **Rs{amount:,}**. This is within the Rs{int(os.getenv('POLICY_LIMIT', 5000)):,} budget "
-            f"and the vendor is on the approved list.\n\n"
-            f"Payment approved and recorded on-chain. Compliance receipt minted."
+            f"and the vendor is on the approved list. Payment approved."
         )
     else:
-        amount_check = policy_checks.get("amount_check", "")
-        vendor_check = policy_checks.get("vendor_check", "")
-        reasons = []
-        if vendor_check == "fail":
-            reasons.append(f"{vendor_name} ({vendor_id}) is not on the approved vendor list")
-        if amount_check == "fail":
-            reasons.append(f"Rs{amount:,} exceeds the policy limit of Rs{int(os.getenv('POLICY_LIMIT', 5000)):,}")
-        reason_str = " and ".join(reasons) if reasons else "policy check failed"
         agent_reply = (
-            f"I selected **{vendor_name} ({vendor_id})** at **Rs{amount:,}** for this task.\n\n"
-            f"The transaction has been recorded on-chain. However, compliance receipt was not minted: "
-            f"{reason_str}."
+            f"I selected **{vendor_name} ({vendor_id})** at **Rs{amount:,}** for this task."
         )
 
     if effective_decision != agent_decision:
@@ -245,6 +235,7 @@ async def run_chat_flow(prompt: str, agent_type_id: str = "payment_approval") ->
 
     return {
         "decision": effective_decision,
+        "agent_decision": agent_decision,
         "ipfs_cid": ipfs_cid,
         "algorand_tx_id": tx_result.tx_id,
         "policy_result": tx_result.policy_result,

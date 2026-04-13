@@ -143,7 +143,7 @@ function ChatAgent({ apiBase }) {
     {
       id: "welcome",
       role: "agent",
-      text: "I'm your autonomous procurement agent. Tell me what you need — I'll find the right vendor, negotiate the price, and record everything on-chain.\n\nTry: **\"Find a vendor for office electronics and finalize the payment\"**",
+      text: "I'm your autonomous procurement agent. Tell me what you need — I'll find the right vendor and negotiate the price.",
       auditResult: null,
     },
   ])
