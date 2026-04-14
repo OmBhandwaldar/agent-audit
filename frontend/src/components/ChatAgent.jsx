@@ -27,6 +27,11 @@ function AuditSummary({ audit }) {
   return (
     <div className="mt-3 rounded-xl border border-[#2a2a2a] bg-[#0e0e0e] p-4 flex flex-col gap-3">
 
+      {/* Header */}
+      <span className="text-[11px] font-bold font-label uppercase tracking-widest text-[#adaaaa]">
+        Compliance Check
+      </span>
+
       {/* Decision badge */}
       <div className="flex items-center gap-2.5">
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold font-label border
