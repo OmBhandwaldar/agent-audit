@@ -4,7 +4,7 @@ import LandingPage from "./components/LandingPage"
 import AuditDashboardPage from "./components/AuditDashboardPage"
 import "./index.css"
 
-const API_BASE = "http://localhost:8000"
+const API_BASE = "https://romantic-wonder-production-b252.up.railway.app"
 
 function AppShell() {
   const navigate = useNavigate()
