@@ -3,6 +3,7 @@ AgentAudit FastAPI backend.
 
 Endpoints:
   POST /api/audit          — run the full audit pipeline for a payment
+  POST /api/chat           — autonomous agent: pick vendor from natural language prompt
   GET  /api/verify         — independently verify any audit record by action ID
   GET  /api/dashboard      — aggregate stats + recent audit history
   GET  /api/export/csv     — download audit history as CSV
@@ -27,7 +28,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from algorand.contract_client import get_audit_record
-from sdk.audit_flow import run_audit_flow
+from sdk.audit_flow import run_audit_flow, run_chat_flow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -112,6 +113,20 @@ class TamperDemoResponse(BaseModel):
     match_tampered: bool     # always False — tamper detected
 
 
+class ChatRequest(BaseModel):
+    """Request body for POST /api/chat."""
+
+    message: str = Field(..., min_length=1, description="Natural language task for the agent")
+    agent_type_id: str = Field(default="payment_approval", description="Agent type identifier")
+
+
+class ChatResponse(BaseModel):
+    """Response body from POST /api/chat."""
+
+    reply: str                      # agent's natural language response for the chat UI
+    audit_result: dict | None = None  # None when the message was off-topic
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -137,6 +152,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
         recent_audits.appendleft({
             "action_id": result["action_id"],
             "decision": result["decision"],
+            "agent_decision": result["agent_decision"],
             "amount": req.amount,
             "vendor_id": req.vendor_id,
             "agent_type_id": result["agent_type_id"],
@@ -150,6 +166,53 @@ async def audit(req: AuditRequest) -> AuditResponse:
         return AuditResponse(**result)
     except Exception as e:
         logger.error("Audit pipeline failed: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest) -> ChatResponse:
+    """
+    Autonomous agent chat endpoint.
+
+    The agent receives a natural language task, autonomously selects a vendor
+    and price from the vendor registry, then runs the full IPFS + Algorand
+    audit pipeline. On-chain policy checks run independently of the agent's
+    selection — if the vendor is not whitelisted or amount exceeds the limit,
+    the transaction is recorded but no compliance receipt is minted.
+
+    Returns the agent's natural language reply plus the full audit result.
+    """
+    logger.info("Chat request: %s", req.message)
+    try:
+        result = await run_chat_flow(req.message, req.agent_type_id)
+
+        # Off-topic: agent replied without running the pipeline
+        if result.get("off_topic"):
+            logger.info("Chat off-topic — skipping audit storage.")
+            return ChatResponse(reply=result["agent_reply"], audit_result=None)
+
+        logger.info(
+            "Chat complete: action_id=%s vendor=%s amount=%s decision=%s",
+            result["action_id"], result["vendor_id"], result.get("amount"), result["decision"],
+        )
+        recent_audits.appendleft({
+            "action_id": result["action_id"],
+            "decision": result["decision"],
+            "agent_decision": result["agent_decision"],
+            "amount": result.get("amount", 0),
+            "vendor_id": result["vendor_id"],
+            "agent_type_id": result["agent_type_id"],
+            "policy_checks": result["policy_checks"],
+            "policy_result": result["policy_result"],
+            "asa_minted": result["asa_minted"],
+            "ipfs_cid": result["ipfs_cid"],
+            "algorand_tx_id": result["algorand_tx_id"],
+            "timestamp": int(time.time()),
+        })
+        reply = result.pop("agent_reply", "Done.")
+        return ChatResponse(reply=reply, audit_result=result)
+    except Exception as e:
+        logger.error("Chat pipeline failed: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
