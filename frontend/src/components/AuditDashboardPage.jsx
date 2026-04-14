@@ -262,11 +262,18 @@ function ComplianceBar({ rate }) {
 
 /* ─── Verify modal ───────────────────────────────────────────────────────── */
 
+const VERIFY_STEPS = [
+  "Fetching audit record from Algorand",
+  "Retrieving evidence from IPFS",
+  "Verifying hash integrity",
+]
+
 function VerifyModal({ apiBase, onClose }) {
   const [actionIdInput, setActionIdInput] = useState("")
   const [verifyStatus,  setVerifyStatus]  = useState("input")   // "input"|"loading"|"result"
   const [verifyResult,  setVerifyResult]  = useState(null)
   const [verifyError,   setVerifyError]   = useState(null)
+  const [steps,         setSteps]         = useState([])
   const [tamperStatus,  setTamperStatus]  = useState("idle")    // "idle"|"loading"|"result"
   const [tamperResult,  setTamperResult]  = useState(null)
   const [tamperError,   setTamperError]   = useState(null)
@@ -277,20 +284,51 @@ function VerifyModal({ apiBase, onClose }) {
     setVerifyError(null)
     setTamperStatus("idle")
     setTamperResult(null)
+
+    // Initialise steps — first one starts loading immediately
+    setSteps(VERIFY_STEPS.map((label, i) => ({ label, status: i === 0 ? "loading" : "pending" })))
+
+    // Advance step 1 → done, step 2 → loading after 1.8s
+    const t1 = setTimeout(() => {
+      setSteps(prev => prev.map((s, i) => {
+        if (i === 0) return { ...s, status: "done" }
+        if (i === 1) return { ...s, status: "loading" }
+        return s
+      }))
+    }, 1800)
+
+    // Advance step 2 → done, step 3 → loading after 3.6s
+    const t2 = setTimeout(() => {
+      setSteps(prev => prev.map((s, i) => {
+        if (i === 1) return { ...s, status: "done" }
+        if (i === 2) return { ...s, status: "loading" }
+        return s
+      }))
+    }, 3600)
+
     try {
       const res = await fetch(
         `${apiBase}/api/verify?action_id=${encodeURIComponent(actionIdInput.trim())}`
       )
+      clearTimeout(t1)
+      clearTimeout(t2)
       if (!res.ok) {
         const d = await res.json()
         throw new Error(d.detail || "Verification failed")
       }
       const data = await res.json()
+
+      // Mark all steps done, then reveal result after brief pause
+      setSteps(VERIFY_STEPS.map(label => ({ label, status: "done" })))
+      await new Promise(r => setTimeout(r, 500))
       setVerifyResult(data)
       setVerifyStatus("result")
     } catch (err) {
+      clearTimeout(t1)
+      clearTimeout(t2)
       setVerifyError(err.message)
       setVerifyStatus("input")
+      setSteps([])
     }
   }
 
@@ -356,7 +394,7 @@ function VerifyModal({ apiBase, onClose }) {
         <div className="p-6 overflow-y-auto flex-1">
 
         {/* ── Input ── */}
-        {verifyStatus !== "result" && (
+        {verifyStatus === "input" && (
           <div className="flex flex-col gap-3">
             <label className="text-[10px] font-label font-semibold text-[#484847] uppercase tracking-wider">
               Action ID
@@ -367,33 +405,24 @@ function VerifyModal({ apiBase, onClose }) {
                 className="flex-1 bg-[#131313] border border-[#2a2a2a] rounded-xl px-4 py-3
                   text-sm text-white font-body outline-none
                   focus:border-[#ff4f00]/50 transition-colors duration-150
-                  placeholder:text-[#484847] disabled:opacity-50"
+                  placeholder:text-[#484847]"
                 placeholder="e.g. 1743600000_1234"
                 value={actionIdInput}
                 onChange={e => setActionIdInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && verifyStatus === "input" && handleVerify()}
-                disabled={verifyStatus === "loading"}
+                onKeyDown={e => e.key === "Enter" && handleVerify()}
+                autoFocus
               />
               <button
                 onClick={handleVerify}
-                disabled={verifyStatus === "loading" || !actionIdInput.trim()}
+                disabled={!actionIdInput.trim()}
                 className="flex items-center gap-2 bg-[#ff4f00] text-[#591800] px-5 py-3 rounded-xl
                   font-bold text-sm headline hover:scale-95 active:opacity-80 transition-all duration-150
                   cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100
                   shadow-[0_4px_16px_-4px_rgba(255,79,0,0.5)] shrink-0"
               >
-                {verifyStatus === "loading" ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-[#591800]/40 border-t-[#591800] rounded-full animate-spin" />
-                    Verifying…
-                  </>
-                ) : (
-                  <>
-                    <span className="material-symbols-outlined text-base"
-                      style={{ fontVariationSettings: "'FILL' 1" }}>search</span>
-                    Verify
-                  </>
-                )}
+                <span className="material-symbols-outlined text-base"
+                  style={{ fontVariationSettings: "'FILL' 1" }}>search</span>
+                Verify
               </button>
             </div>
             {verifyError && (
@@ -402,6 +431,32 @@ function VerifyModal({ apiBase, onClose }) {
                 {verifyError}
               </p>
             )}
+          </div>
+        )}
+
+        {/* ── Steps ── */}
+        {verifyStatus === "loading" && (
+          <div className="flex flex-col gap-5 py-4">
+            {steps.map((step, i) => (
+              <div key={i} className="flex items-center gap-4">
+                {step.status === "done" ? (
+                  <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-[13px] text-white"
+                      style={{ fontVariationSettings: "'FILL' 1" }}>check</span>
+                  </div>
+                ) : step.status === "loading" ? (
+                  <div className="w-6 h-6 shrink-0 border-2 border-[#2a2a2a] border-t-[#ff4f00] rounded-full animate-spin" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full border border-[#2a2a2a] shrink-0" />
+                )}
+                <span className={`text-sm font-body transition-colors duration-300
+                  ${step.status === "pending"  ? "text-[#484847]" : ""}
+                  ${step.status === "loading"  ? "text-white"     : ""}
+                  ${step.status === "done"     ? "text-[#adaaaa]" : ""}`}>
+                  {step.label}
+                </span>
+              </div>
+            ))}
           </div>
         )}
 

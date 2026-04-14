@@ -191,7 +191,10 @@ async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
             f"2. Pick the best vendor for the task. Consider price and fit.\n"
             f"3. Call finalize_vendor with your chosen vendor_id and price.\n"
             f"Budget limit is Rs{POLICY_LIMIT}. Prefer cost-effective options.\n"
-            f"You MUST call finalize_vendor before finishing."
+            f"You MUST call finalize_vendor before finishing.\n\n"
+            f"IMPORTANT: If the user's message is NOT related to procurement, vendor selection, "
+            f"or payment — do NOT call any tools. Just reply with a short, polite message "
+            f"saying you can only help with procurement and vendor-related tasks."
         )
 
         messages = [
@@ -218,8 +221,13 @@ async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
                 break  # finalize_vendor was called, we have what we need
 
         if not selected:
-            logger.warning("Chat agent did not call finalize_vendor, using fallback")
-            return decide_vendor_and_payment(prompt)
+            # Agent responded with text only — off-topic or unclear request
+            last_text = next(
+                (m.content for m in reversed(messages) if hasattr(m, "content") and m.content),
+                "I can only help with procurement and vendor-related tasks."
+            )
+            logger.info("Chat agent returned off-topic response: %s", last_text)
+            return None, 0, None, last_text
 
         vendor_id = selected["vendor_id"]
         amount = selected["amount"]

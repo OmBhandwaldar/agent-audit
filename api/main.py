@@ -123,8 +123,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """Response body from POST /api/chat."""
 
-    reply: str          # agent's natural language response for the chat UI
-    audit_result: dict  # full audit result (same shape as AuditResponse)
+    reply: str                      # agent's natural language response for the chat UI
+    audit_result: dict | None = None  # None when the message was off-topic
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +185,12 @@ async def chat(req: ChatRequest) -> ChatResponse:
     logger.info("Chat request: %s", req.message)
     try:
         result = await run_chat_flow(req.message, req.agent_type_id)
+
+        # Off-topic: agent replied without running the pipeline
+        if result.get("off_topic"):
+            logger.info("Chat off-topic — skipping audit storage.")
+            return ChatResponse(reply=result["agent_reply"], audit_result=None)
+
         logger.info(
             "Chat complete: action_id=%s vendor=%s amount=%s decision=%s",
             result["action_id"], result["vendor_id"], result.get("amount"), result["decision"],

@@ -82,122 +82,66 @@ function HeroSection({ onEnterApp }) {
   )
 }
 
-/* ─── What it Does — Bento ───────────────────────────────────────────────── */
+/* ─── What it Does — Feature Cards ──────────────────────────────────────── */
 
-/**
- * BentoCard — image card with always-visible bottom label and
- * an orange overlay that slides up from the bottom on hover.
- *
- * @param {string}  colSpan     - Tailwind col-span class(es)
- * @param {string}  height      - Tailwind height class for mobile
- * @param {string}  src         - image URL (swap for Gemini-generated images)
- * @param {string}  alt         - img alt text
- * @param {string}  label       - 2–3 word always-visible bottom label
- * @param {string}  description - sentence shown inside the orange hover overlay
- * @param {string}  [imgClass]  - extra classes for the <img>
- */
-function BentoCard({ colSpan, height = "h-[260px]", src, alt, label, description, imgClass = "" }) {
+const FEATURE_CARDS = [
+  {
+    icon: "receipt_long",
+    title: "Audit Trail",
+    description: "Every AI agent decision is captured in a tamper-proof log — timestamped, policy-checked, and anchored on Algorand forever.",
+    highlight: true,
+  },
+  {
+    icon: "verified",
+    title: "Chain Verified",
+    description: "Independent verifiers can check any audit record against the Algorand blockchain without trusting the deploying organization.",
+  },
+  {
+    icon: "smart_toy",
+    title: "Agent Memory",
+    description: "LangChain-powered agents evaluate every transaction in real-time. Each decision is immutably logged before any action executes.",
+  },
+  {
+    icon: "folder_open",
+    title: "IPFS Evidence",
+    description: "Full decision payloads are pinned to IPFS via Pinata with SHA-256 fingerprints anchored on-chain for independent retrieval.",
+  },
+]
+
+function FeatureCard({ icon, title, description }) {
   return (
-    <div className={`${colSpan} compact-organic-rounding overflow-hidden relative ${height} md:h-auto group cursor-default`}>
-
-      {/* Background image */}
-      <img
-        src={src}
-        alt={alt}
-        className={`absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 ${imgClass}`}
-      />
-
-      {/* Permanent dark scrim */}
-      <div className="absolute inset-0 bg-black/50" />
-
-      {/* Always-visible bottom label */}
-      <div className="absolute bottom-0 left-0 right-0 z-10 px-7 py-5
-        bg-gradient-to-t from-black/80 to-transparent
-        translate-y-0 group-hover:translate-y-full transition-transform duration-500 ease-in-out">
-        <span className="headline font-bold text-white text-lg tracking-tight">{label}</span>
-      </div>
-
-      {/* Orange hover overlay — slides up from bottom */}
-      <div className="absolute inset-0 z-20
-        bg-[#ff4f00]
-        translate-y-full group-hover:translate-y-0
-        transition-transform duration-500 ease-in-out
-        flex flex-col items-start justify-end p-7 md:p-9">
-        <span className="headline font-bold text-[#3a1000] text-lg mb-3 tracking-tight">{label}</span>
-        <p className="text-[#5c1e00]/90 text-sm leading-relaxed font-body max-w-sm">
-          {description}
-        </p>
-      </div>
-
+    <div className="flex flex-col items-center text-center p-8 rounded-2xl bg-[#131313] border border-transparent hover:border-[#ff4f00]/60 transition-colors duration-200">
+      <span
+        className="material-symbols-outlined text-[40px] text-[#ff4f00] mb-5"
+        style={{ fontVariationSettings: "'FILL' 0, 'wght' 300" }}
+      >
+        {icon}
+      </span>
+      <h3 className="headline text-lg font-bold text-white mb-3">{title}</h3>
+      <p className="text-[#767575] text-sm leading-relaxed font-body">{description}</p>
     </div>
   )
 }
 
-const BENTO_CARDS = [
-  {
-    colSpan: "md:col-span-8",
-    height:  "h-[280px]",
-    src: "https://lh3.googleusercontent.com/aida-public/AB6AXuAHSbgs3FSMl3thNGMFU-zmH1EMuz2OGzUqTfgAocwqSN-B4HFtBcmOKCmbiMSuLDV_yWOiK9GYM6hLg115drneVcSYpSfSG7z6Vdl0bC807Pb_Z2unT4rtXdFlnjBmqSS4Rhy6-aghjHNL1QPcTz81rwE3OaWsSTwehyXyegaRZBQwKrfjTAAcRFKgTurNoPJIV6CetPpiciu1V1ltlV2Jpb8wPv4Ap-VJKFt3FmZQoZ1oD76JbKYJPZwaHf16sk8Uv0Z6dtVqqUc",
-    alt:   "Audit trail — immutable on-chain records",
-    label: "Audit Trail",
-    description: "Every AI agent decision is captured in a cryptographically signed, tamper-proof log — timestamped, policy-checked, and anchored on Algorand forever.",
-    // ↑ Replace src with Gemini Prompt 1 output
-  },
-  {
-    colSpan: "md:col-span-4",
-    height:  "h-[260px]",
-    src: "https://lh3.googleusercontent.com/aida-public/AB6AXuD6IYeTYV4nhsWof8VLV1JSGzd1JFt81DRy19nVCFDUsrUE_BpRGh2ToejllTrqWfSP-fo7WM5rdywN6ERfzQsXW5Vzh9hH9hmpDlijQ8IWOXAd5atYHF19J3oiV3ht3PvI-FdXoPBHRHbkB-zkjpZ3l1L4BbqNlE0H3GliTGuMSBoXN9bSEQAbhJPndOql45sTsqsgojv8pLRM6p28ArYZdEZH-lYZ4pQNOufY9Wvm1ccEBFEiKkRJQ9CH4IcM2khldpBAE_K1ZLY",
-    alt:   "Chain verified — Algorand blockchain verification",
-    label: "Chain Verified",
-    description: "Independent verifiers can check any audit record against the Algorand blockchain without trusting the organization that deployed the agent.",
-    imgClass: "grayscale",
-    // ↑ Replace src with Gemini Prompt 2 output
-  },
-  {
-    colSpan: "md:col-span-4",
-    height:  "h-[260px]",
-    src: "https://lh3.googleusercontent.com/aida-public/AB6AXuDfQEqXLR4blAc0Lkxqorysjvicd08fxrDZBr7oZhCKlxwbpwQ5_uBEaXRJFe9oGuF9lTCcj5rnZ7SBI9m0RjAYY9kkW4c2JW-d-xBKrWS43WRHUcfnVLuwVJaZJWV_NbzhnS0aP8u7FbA9BBYryt9GOiCKWdNaHmvEnwPr7jJFRBoBvrd7S77WODP6arVjyX3gfnyWMEG1H8zZDMsHcmRQnXlsm5RANF_6bDRUqfkYcU4e2s-Vm6vhIx2vle8yw2HexV866nO1POs",
-    alt:   "Agent memory — LangChain AI decision intelligence",
-    label: "Agent Memory",
-    description: "LangChain-powered agents evaluate every transaction in real-time. Each approve or reject decision is immutably logged before any action executes.",
-    // ↑ Replace src with Gemini Prompt 3 output
-  },
-  {
-    colSpan: "md:col-span-8",
-    height:  "h-[260px]",
-    src: "https://lh3.googleusercontent.com/aida-public/AB6AXuAWqKEeD_2OTYHFORkuCDNU4j3plNhBCBHrpgtFO0c-IZMfycq0p6P7M18St-DK3tpiKr90H06OoxH22bhn_Ts0e0-JP-HOGI5Uw8OkFGpi-tQXtml1nkRnbzyQAHVWKtt9tj9AAjOzAxkGRbTqLrnlRfZBIUSydQHNFvJM46eAhWppd5wl1cxsS7DiLPCCQMA0EVhs67kh8xL9bORYdBu6hRhqUxdjzjreg9mjY4qUT7VD30SAA0NXaTbPrXfH4kWM4WjVkmjP2UE",
-    alt:   "IPFS evidence — distributed off-chain storage",
-    label: "IPFS Evidence",
-    description: "Full decision payloads — amount, vendor, policy result, reasoning — are pinned to IPFS via Pinata with SHA-256 fingerprints anchored on-chain.",
-    // ↑ Replace src with Gemini Prompt 4 output
-  },
-]
-
 function WhatItDoes() {
   return (
     <section className="py-20 bg-[#0e0e0e]">
-      <div className="max-w-screen-2xl mx-auto px-6 md:px-12">
+      <div className="max-w-screen-xl mx-auto px-6 md:px-12">
 
         {/* Section header */}
-        {/* <div className="flex flex-col md:flex-row gap-10 items-end mb-12">
-          <div className="md:w-1/2">
-            <h2 className="headline text-4xl md:text-6xl font-bold tracking-tighter leading-none text-white">
-              YOUR DATA,<br />YOUR CONTROL
-            </h2>
-          </div>
-          <div className="md:w-1/2">
-            <p className="text-white text-base md:text-lg leading-relaxed max-w-xl">
-              We bring clarity to the black box of LLM interactions. Monitor the
-              decision trail of your agents in real-time with enterprise-grade
-              blockchain security.
-            </p>
-          </div>
-        </div> */}
+        <div className="text-center mb-12">
+          <h2 className="headline text-4xl md:text-5xl font-bold mb-4 text-white tracking-tighter">
+            WHAT IT DOES
+          </h2>
+          <p className="text-[#adaaaa] text-base max-w-md mx-auto">
+            From agent decision to on-chain proof — fully automated.
+          </p>
+        </div>
 
-        {/* Bento grid */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:h-[680px]">
-          {BENTO_CARDS.map((card) => (
-            <BentoCard key={card.label} {...card} />
+        {/* Cards row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {FEATURE_CARDS.map(card => (
+            <FeatureCard key={card.title} {...card} />
           ))}
         </div>
 

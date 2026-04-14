@@ -169,6 +169,12 @@ async def run_chat_flow(prompt: str, agent_type_id: str = "payment_approval") ->
 
     # Step 1: Agent autonomously picks vendor and amount
     vendor_id, amount, agent_decision, reason = await run_chat_agent(prompt)
+
+    # Off-topic: agent responded with plain text, no vendor selected — skip pipeline
+    if vendor_id is None:
+        logger.info("Chat agent flagged off-topic. Returning plain reply without pipeline.")
+        return {"agent_reply": reason, "off_topic": True}
+
     logger.info("Chat agent selected: vendor=%s amount=%d decision=%s", vendor_id, amount, agent_decision)
 
     # Step 2: Build record
