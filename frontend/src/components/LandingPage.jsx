@@ -25,13 +25,13 @@ function HeroSection({ onEnterApp }) {
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#ff4f00]/8 blur-[120px] rounded-full pointer-events-none z-0" />
 
       {/* Content */}
-      <div className="relative z-10 max-w-5xl px-6 text-center">
+      <div className="relative z-10 max-w-5xl px-6 text-center mt-16">
 
         {/* Pill badge */}
-        <div className="inline-flex items-center gap-2 bg-[#1a1919] border border-[#484847]/40 rounded-full px-4 py-1.5 mb-8 text-xs font-label font-medium text-[#adaaaa]">
+        {/* <div className="inline-flex items-center gap-2 bg-[#1a1919] border border-[#484847]/40 rounded-full px-4 py-1.5 mb-8 text-xs font-label font-medium text-[#adaaaa]">
           <span className="w-1.5 h-1.5 rounded-full bg-[#26fedc] animate-pulse" />
           AlgoBharat Hack Series 3.0 · Round 2
-        </div>
+        </div> */}
 
         <h1 className="headline text-5xl md:text-7xl lg:text-8xl font-bold tracking-tighter leading-[0.92] mb-8 text-white">
           SURVEIL YOUR <br />
@@ -64,7 +64,7 @@ function HeroSection({ onEnterApp }) {
         </div>
 
         {/* Stat strip */}
-        <div className="mt-20 flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-12">
+        {/* <div className="mt-20 flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-12">
           {[
             { value: "< 2s",     label: "Audit latency"          },
             { value: "On-chain", label: "Tamper-proof records"   },
@@ -75,7 +75,7 @@ function HeroSection({ onEnterApp }) {
               <div className="text-xs text-[#767575] mt-0.5 font-label uppercase tracking-wider">{label}</div>
             </div>
           ))}
-        </div>
+        </div> */}
 
       </div>
     </section>
