@@ -40,7 +40,7 @@ function HeroSection({ onEnterApp }) {
 
         <p className="max-w-2xl mx-auto text-white text-base md:text-lg mb-12 leading-relaxed font-body">
           AgentAudit provides tamper-proof observability for LLM agents.
-          Every decision is anchored on-chain via Algorand — independently
+          Every decision is anchored on-chain via Algorand, independently
           verifiable, compliance-ready, and immutable by design.
         </p>
 
@@ -88,7 +88,7 @@ const FEATURE_CARDS = [
   {
     icon: "receipt_long",
     title: "Audit Trail",
-    description: "Every AI agent decision is captured in a tamper-proof log — timestamped, policy-checked, and anchored on Algorand forever.",
+    description: "Every AI agent decision is captured in a tamper-proof log, timestamped, policy-checked, and anchored on Algorand forever.",
     highlight: true,
   },
   {
@@ -104,7 +104,7 @@ const FEATURE_CARDS = [
   {
     icon: "folder_open",
     title: "IPFS Evidence",
-    description: "Full decision payloads are pinned to IPFS via Pinata with SHA-256 fingerprints anchored on-chain for independent retrieval.",
+    description: "Full decision payloads are pinned to IPFS with SHA-256 fingerprints anchored on-chain for independent retrieval.",
   },
 ]
 
@@ -378,7 +378,7 @@ function InstallSection() {
 
         {/* Footnote */}
         <p className="text-center text-[10px] font-mono text-[#484847] mt-4 tracking-wider uppercase">
-          Algorand Testnet · IPFS via Pinata · LangChain agent runtime
+          Algorand · IPFS · Agent runtime
         </p>
 
       </div>
@@ -420,10 +420,10 @@ function CTASection({ onEnterApp }) {
           >
             Initialize Audit Now
           </button>
-          <button className="text-white hover:text-[#ff4f00] transition-colors font-bold text-base headline flex items-center gap-2">
+          {/* <button className="text-white hover:text-[#ff4f00] transition-colors font-bold text-base headline flex items-center gap-2">
             Read Case Studies
             <span className="material-symbols-outlined text-base">arrow_forward</span>
-          </button>
+          </button> */}
         </div>
       </div>
     </section>
@@ -447,9 +447,9 @@ function Footer() {
           <div className="text-xl font-black text-white mb-3 headline">
             AgentAudit<span className="text-[#ff4f00]">.</span>
           </div>
-          <div className="text-[#767575] text-xs">
+          {/* <div className="text-[#767575] text-xs">
             © 2024 AgentAudit. AlgoBharat Hack Series 3.0.
-          </div>
+          </div> */}
         </div>
 
         {/* Links */}
