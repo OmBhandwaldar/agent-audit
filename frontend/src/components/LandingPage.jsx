@@ -39,7 +39,7 @@ function HeroSection({ onEnterApp }) {
         </h1>
 
         <p className="max-w-2xl mx-auto text-white text-base md:text-lg mb-12 leading-relaxed font-body">
-          AgentAudit provides tamper-proof observability for LLM agents.
+          AgentAudit provides tamper-proof observability for AIagents.
           Every decision is anchored on-chain via Algorand, independently
           verifiable, compliance-ready, and immutable by design.
         </p>
