@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(curl -sL --max-time 12 \"https://www.holisticai.com/pricing\" -A \"Mozilla/5.0\")",
+      "Bash(curl -sL --max-time 12 \"https://arize.com/pricing/\" -A \"Mozilla/5.0\")",
+      "Bash(grep -iE \"price|month|\\\\\\\\$|enterprise\")"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
