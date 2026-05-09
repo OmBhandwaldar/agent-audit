@@ -17,10 +17,9 @@ Box storage:
 
 from algopy import (
     ARC4Contract,
+    BoxMap,
     Bytes,
     Global,
-    GlobalState,
-    String,
     Txn,
     UInt64,
     op,
@@ -48,18 +47,17 @@ class AnchorContract(ARC4Contract):
     """
 
     def __init__(self) -> None:
-        """Declare global state and roots box map."""
-        self.initialized = GlobalState(arc4.Bool(False), description="Initialization guard")
+        """Declare roots box map. No global state needed — create guard is on initialize()."""
         self.roots = BoxMap(Bytes, AnchorRecord, key_prefix=b"root:")
 
     @arc4.abimethod(create="require")
     def initialize(self) -> None:
         """
-        Mark contract as initialized. Called exactly once on deploy.
+        Called exactly once at contract creation.
 
         Creator address is implicitly stored via Global.creator_address.
+        No setup needed — creator access is enforced via Global.creator_address.
         """
-        self.initialized.value = arc4.Bool(True)
 
     @arc4.abimethod
     def submit_root(
@@ -93,10 +91,12 @@ class AnchorContract(ARC4Contract):
     @arc4.abimethod(readonly=True)
     def get_root(self, batch_id: arc4.String) -> arc4.String:
         """
-        Retrieve a stored Merkle root by batch ID.
+        Retrieve the stored Merkle root by batch ID.
 
-        Returns pipe-delimited string:
-          "merkle_root=...|leaf_count=...|timestamp=...|batch_id=..."
+        Returns the hex-encoded SHA256 Merkle root for the batch.
+        For full record metadata (leaf_count, timestamp), the client should
+        read the box directly via algod's box_get API.
+
         Asserts if no record exists for the given batch ID.
 
         Args:
@@ -105,15 +105,4 @@ class AnchorContract(ARC4Contract):
         box_key = op.sha256(batch_id.bytes)
         assert box_key in self.roots, "Batch root not found"
         record = self.roots[box_key].copy()
-
-        result = (
-            String("merkle_root=") + record.merkle_root.native
-            + String("|leaf_count=") + String.from_bytes(
-                op.itob(record.leaf_count.native)
-            )
-            + String("|timestamp=") + String.from_bytes(
-                op.itob(record.timestamp.native)
-            )
-            + String("|batch_id=") + record.batch_id.native
-        )
-        return arc4.String(result)
+        return record.merkle_root
