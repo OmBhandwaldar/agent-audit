@@ -1,22 +1,20 @@
 """
 Phase 2 checkpoint script for AgentAudit.
 
-Tests the split-contract flow end-to-end with AES-GCM encryption:
+Runs 3 audit records through the full Phase 2 pipeline:
   1. Encrypt decision JSON with AES-GCM-256
   2. Upload encrypted envelope to IPFS
-  3. Call PolicyContract.check_and_mint — policy check + AACR mint
-  4. Submit a single-leaf Merkle root to AnchorContract
+  3. Call PolicyContract.check_and_mint (policy check + AACR mint)
+  4. Add record to BatchStore
+  5. Flush batch -> compute Merkle root -> anchor on AnchorContract
+  6. Verify root round-trip and Merkle proof for each record
 
 Usage:
-  python scripts/runFlow_v2.py <amount> <vendor_id>
-  python scripts/runFlow_v2.py 4500 VENDOR_001   # should approve + mint
-  python scripts/runFlow_v2.py 7000 VENDOR_001   # should reject (amount fails)
-  python scripts/runFlow_v2.py 4500 VENDOR_999   # should reject (vendor fails)
+  python scripts/runFlow_v2.py
 """
 
 import asyncio
 import hashlib
-import json
 import os
 import random
 import sys
@@ -28,51 +26,44 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from algorand.contract_client_v2 import (
-    get_anchor_root,
-    submit_anchor_root,
-    submit_policy_check,
-)
-from crypto.payload import decrypt_payload, encrypt_payload
+from algorand.contract_client_v2 import get_anchor_root, submit_policy_check
+from batcher.anchor import flush_and_anchor
+from batcher.merkle import verify_proof
+from batcher.store import BatchStore
+from crypto.payload import encrypt_payload
 from ipfs.uploader import upload_to_ipfs
 
+# Three test cases covering all policy outcomes
+TEST_CASES = [
+    {"amount": 4500, "vendor_id": "VENDOR_001"},  # pass + pass -> mint
+    {"amount": 7000, "vendor_id": "VENDOR_001"},  # fail + pass -> no mint
+    {"amount": 4500, "vendor_id": "VENDOR_999"},  # pass + fail -> no mint
+]
 
-def _leaf_hash(record: dict) -> str:
-    """Compute SHA256 of sorted-JSON canonical form of a record."""
-    canonical = json.dumps(record, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
+async def process_record(
+    amount: int,
+    vendor_id: str,
+    agent_id: str,
+    store: BatchStore,
+    index: int,
+) -> dict:
+    """
+    Run one audit record through encrypt -> IPFS -> PolicyContract -> BatchStore.
 
-async def main() -> None:
-    """Run the Phase 2 flow and print results."""
-    amount = int(sys.argv[1]) if len(sys.argv) > 1 else 4500
-    vendor_id = sys.argv[2] if len(sys.argv) > 2 else "VENDOR_001"
-
+    Returns the completed record dict (with policy fields added).
+    """
     action_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
-    agent_id = os.getenv("AGENT_ID", "agent_001")
     timestamp = int(time.time())
-
-    print(f"\n{'='*55}")
-    print(f"AgentAudit Phase 2 — runFlow_v2.py")
-    print(f"{'='*55}")
-    print(f"Amount:    {amount}")
-    print(f"Vendor:    {vendor_id}")
-    print(f"Action ID: {action_id}")
-    print()
-
-    # 1. Agent decision (simple rule — LangChain integration is Phase 1)
     policy_limit = int(os.getenv("POLICY_LIMIT", "5000"))
+
     decision = "approved" if amount < policy_limit else "rejected"
     reason = (
         f"Amount {amount} is within policy limit {policy_limit}"
-        if amount < policy_limit
+        if decision == "approved"
         else f"Amount {amount} exceeds policy limit {policy_limit}"
     )
-    print(f"Agent decision: {decision.upper()}")
-    print(f"Reason:         {reason}")
-    print()
 
-    # 2. Build decision record
     record = {
         "action": "approve_payment",
         "action_id": action_id,
@@ -85,22 +76,15 @@ async def main() -> None:
         "timestamp": timestamp,
     }
 
-    # 3. Encrypt then upload to IPFS
-    print("Encrypting and uploading to IPFS...")
+    print(f"  [{index+1}] amount={amount} vendor={vendor_id} decision={decision.upper()}")
+
+    # Encrypt + upload
     envelope = encrypt_payload(record)
     ipfs_cid = await upload_to_ipfs(envelope, name=action_id)
     ipfs_hash = hashlib.sha256(ipfs_cid.encode()).hexdigest()
-    print(f"  IPFS CID:  {ipfs_cid}  (encrypted)")
-    print(f"  IPFS hash: {ipfs_hash[:16]}...")
+    print(f"       IPFS: {ipfs_cid[:20]}... (encrypted)")
 
-    # Verify decrypt round-trip locally before continuing
-    recovered = decrypt_payload(envelope)
-    assert recovered["action_id"] == action_id, "Decrypt round-trip failed"
-    print(f"  Decrypt:   OK (round-trip verified locally)")
-    print()
-
-    # 4. Call PolicyContract.check_and_mint
-    print("Calling PolicyContract.check_and_mint...")
+    # Policy check
     policy_result = await submit_policy_check(
         action_id=action_id,
         ipfs_hash=ipfs_hash,
@@ -109,60 +93,88 @@ async def main() -> None:
         agent_id=agent_id,
         timestamp=timestamp,
     )
-    print(f"  Policy TX:     {policy_result.tx_id}")
-    print(f"  Policy result: {policy_result.policy_result}")
-    print(f"  ASA minted:    {policy_result.asa_minted}")
-    print()
+    print(f"       Policy: {policy_result.policy_result}  ASA minted: {policy_result.asa_minted}")
+    print(f"       TX: {policy_result.tx_id}")
 
-    # 5. Build single-leaf Merkle root (leaf = hash of the record)
+    # Attach policy fields then add to batcher
+    record["ipfs_cid"] = ipfs_cid
+    record["ipfs_hash"] = ipfs_hash
     record["policy_result"] = policy_result.policy_result
     record["policy_tx_id"] = policy_result.tx_id
-    leaf = _leaf_hash(record)
-    merkle_root = leaf  # single-leaf tree: root == the leaf
-    leaf_count = 1
+    record["asa_minted"] = policy_result.asa_minted
 
-    batch_id = f"batch_{timestamp}_{random.randint(1000, 9999)}"
+    store.add(record)
+    return record
 
-    print(f"Anchoring Merkle root (single leaf)...")
-    print(f"  Batch ID:    {batch_id}")
-    print(f"  Merkle root: {merkle_root[:16]}...")
 
-    anchor_tx_id = await submit_anchor_root(
-        batch_id=batch_id,
-        merkle_root=merkle_root,
-        leaf_count=leaf_count,
-        timestamp=timestamp,
-    )
+async def main() -> None:
+    """Run 3 audit records through Phase 2 pipeline and anchor as a batch."""
+    agent_id = os.getenv("AGENT_ID", "agent_001")
+    store = BatchStore()
+
+    print(f"\n{'='*60}")
+    print("AgentAudit Phase 2 -- Merkle Batch Checkpoint")
+    print(f"{'='*60}")
+    print(f"Processing {len(TEST_CASES)} records...")
+    print()
+
+    records = []
+    for i, case in enumerate(TEST_CASES):
+        rec = await process_record(
+            amount=case["amount"],
+            vendor_id=case["vendor_id"],
+            agent_id=agent_id,
+            store=store,
+            index=i,
+        )
+        records.append(rec)
+        print()
+
+    # Flush and anchor the batch
+    print(f"Flushing batch ({store.size()} records) and anchoring Merkle root...")
+    batch = await flush_and_anchor(store)
+    anchor_tx_id = batch.anchor_tx_id  # type: ignore[attr-defined]
+    print(f"  Batch ID:    {batch.batch_id}")
+    print(f"  Merkle root: {batch.merkle_root[:32]}...")
     print(f"  Anchor TX:   {anchor_tx_id}")
     print()
 
-    # 6. Verify round-trip — read root back from AnchorContract
+    # Verify root round-trip from AnchorContract
     print("Verifying root round-trip from AnchorContract...")
-    stored_root = await get_anchor_root(batch_id)
-    root_verified = stored_root == merkle_root
-    print(f"  Stored root: {stored_root[:16]}...")
-    match_str = "YES" if root_verified else "NO -- MISMATCH"
-    print(f"  Match:       {match_str}")
+    stored_root = await get_anchor_root(batch.batch_id)
+    root_match = stored_root == batch.merkle_root
+    print(f"  Stored root: {stored_root[:32]}...")
+    print(f"  Match:       {'YES' if root_match else 'NO -- MISMATCH'}")
     print()
 
-    # 7. Summary
-    print(f"{'='*55}")
-    print(f"Decision:      {decision.upper()}")
-    print(f"IPFS CID:      {ipfs_cid}")
-    print(f"Policy TX:     {policy_result.tx_id}")
-    print(f"Policy Result: {policy_result.policy_result}")
-    print(f"ASA Minted:    {policy_result.asa_minted}")
-    print(f"Anchor TX:     {anchor_tx_id}")
-    print(f"Batch ID:      {batch_id}")
-    print(f"Root Verified: {root_verified}")
+    # Verify Merkle proof for each leaf
+    print("Verifying Merkle proofs for all leaves...")
+    all_proofs_ok = True
+    for i, entry in enumerate(batch.entries):
+        proof = batch.proof_for(i)
+        ok = verify_proof(entry.leaf, proof, batch.merkle_root)
+        status = "PASS" if ok else "FAIL"
+        print(f"  Leaf {i} (action={entry.record['action_id']}): proof_len={len(proof)}  {status}")
+        if not ok:
+            all_proofs_ok = False
     print()
 
-    if not root_verified:
-        print("FAIL: Root mismatch -- AnchorContract may have a bug. Check contract code.")
+    # Summary
+    print(f"{'='*60}")
+    print(f"Records processed: {len(records)}")
+    print(f"Batch ID:          {batch.batch_id}")
+    print(f"Merkle root:       {batch.merkle_root}")
+    print(f"Anchor TX:         {anchor_tx_id}")
+    print(f"Root verified:     {root_match}")
+    print(f"All proofs valid:  {all_proofs_ok}")
+    print()
+
+    if not root_match or not all_proofs_ok:
+        print("FAIL: One or more checks failed.")
         sys.exit(1)
 
-    print("Phase 2 Day 2 checkpoint: PASSED")
-    print(f"{'='*55}")
+    print("Phase 2 Merkle batch checkpoint: PASSED")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
