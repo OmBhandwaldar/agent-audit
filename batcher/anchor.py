@@ -12,12 +12,13 @@ logger = logging.getLogger(__name__)
 
 async def flush_and_anchor(store: BatchStore) -> ReadyBatch:
     """
-    Flush the pending batch and anchor its Merkle root on-chain.
+    Flush the pending batch, anchor its Merkle root on-chain, and persist proofs.
 
     Steps:
-        1. Flush the BatchStore → ReadyBatch (computes Merkle root)
+        1. Flush the BatchStore -> ReadyBatch (computes Merkle root from pending leaves)
         2. Submit the root to AnchorContract via submit_anchor_root()
-        3. Attach the anchor TX ID to the batch and return it
+        3. Call store.mark_anchored() to persist proofs and batch metadata
+        4. Return the ReadyBatch with anchor_tx_id set
 
     Args:
         store: The BatchStore holding pending audit records.
@@ -45,6 +46,8 @@ async def flush_and_anchor(store: BatchStore) -> ReadyBatch:
         timestamp=batch.timestamp,
     )
 
-    batch.anchor_tx_id = tx_id  # type: ignore[attr-defined]
-    logger.info("Batch anchored: TX=%s", tx_id)
+    batch.anchor_tx_id = tx_id
+    store.mark_anchored(batch, tx_id)
+
+    logger.info("Batch anchored and persisted: TX=%s", tx_id)
     return batch

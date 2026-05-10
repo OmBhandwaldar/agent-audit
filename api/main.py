@@ -28,6 +28,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from algorand.contract_client import get_audit_record
+from algorand.contract_client_v2 import get_anchor_root
+from batcher.anchor import flush_and_anchor
+from batcher.merkle import verify_proof
+from batcher.store import BatchStore
 from sdk.audit_flow import run_audit_flow, run_chat_flow
 
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +52,9 @@ app.add_middleware(
 
 # In-memory audit history — holds up to 50 most recent audits, oldest auto-dropped
 recent_audits: deque = deque(maxlen=50)
+
+# Shared SQLite-backed batcher — persists across requests
+batch_store = BatchStore()
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +395,121 @@ async def tamper_demo(action_id: str = Query(..., description="Action ID to simu
         match_original=(hash_original == onchain_hash),
         match_tampered=(hash_tampered == onchain_hash),
     )
+
+
+@app.post("/api/batch/submit")
+async def submit_batch() -> dict:
+    """
+    Flush all pending leaves, compute the Merkle root, and anchor it on AnchorContract.
+
+    This is the demo centerpiece — one TX anchors all pending audit records.
+    Returns the batch_id, merkle_root, leaf_count, and anchor TX ID.
+    """
+    pending = batch_store.size()
+    if pending == 0:
+        raise HTTPException(status_code=400, detail="No pending leaves to anchor")
+
+    logger.info("Batch submit triggered: %d pending leaves", pending)
+    try:
+        batch = await flush_and_anchor(batch_store)
+    except Exception as e:
+        logger.error("Batch anchor failed: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+    logger.info("Batch anchored: batch_id=%s tx=%s", batch.batch_id, batch.anchor_tx_id)
+    return {
+        "batch_id": batch.batch_id,
+        "merkle_root": batch.merkle_root,
+        "leaf_count": len(batch.leaves),
+        "anchor_tx_id": batch.anchor_tx_id,
+        "explorer_url": f"https://testnet.explorer.perawallet.app/tx/{batch.anchor_tx_id}",
+    }
+
+
+@app.get("/api/batch/status")
+async def batch_status() -> dict:
+    """
+    Return the current batcher state: pending leaf count and recent batches.
+    """
+    return {
+        "pending_count": batch_store.size(),
+        "is_full": batch_store.is_full(),
+        "recent_batches": batch_store.recent_batches(limit=5),
+    }
+
+
+@app.get("/api/batch/{batch_id}")
+async def get_batch(batch_id: str) -> dict:
+    """
+    Return metadata for a specific batch by batch_id.
+    """
+    batch = batch_store.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail=f"Batch not found: {batch_id}")
+    return batch
+
+
+@app.get("/api/verify/v2")
+async def verify_v2(action_id: str = Query(..., description="Action ID to verify")) -> dict:
+    """
+    Verify a Phase 2 audit record using Merkle proof.
+
+    Looks up the leaf in SQLite, fetches the on-chain Merkle root from
+    AnchorContract, verifies the proof, and decrypts the IPFS payload.
+
+    Returns verification status, proof validity, and decrypted record.
+    """
+    logger.info("Verify v2 request for action_id: %s", action_id)
+
+    leaf_data = batch_store.get_leaf(action_id)
+    if not leaf_data:
+        raise HTTPException(status_code=404, detail=f"No leaf found for action_id: {action_id}")
+
+    batch_id = leaf_data.get("batch_id")
+    proof = leaf_data.get("proof")
+
+    # Not yet anchored
+    if not batch_id or proof is None:
+        return {
+            "action_id": action_id,
+            "anchor_status": "pending",
+            "merkle_proof_valid": None,
+            "record": leaf_data["record"],
+            "leaf_hash": leaf_data["leaf_hash"],
+        }
+
+    # Fetch on-chain root and verify proof
+    try:
+        onchain_root = await get_anchor_root(batch_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch on-chain root: {e}")
+
+    proof_valid = verify_proof(leaf_data["leaf_hash"], proof, onchain_root)
+
+    # Decrypt IPFS payload
+    record = leaf_data["record"]
+    ipfs_cid = record.get("ipfs_cid", "")
+    decrypted_record: dict | None = None
+
+    if ipfs_cid:
+        try:
+            from crypto.payload import decrypt_payload
+            _, envelope = await _fetch_ipfs_data(action_id)
+            decrypted_record = decrypt_payload(envelope)
+        except Exception as e:
+            logger.warning("IPFS decrypt failed for %s: %s", action_id, e)
+
+    return {
+        "action_id": action_id,
+        "anchor_status": "anchored",
+        "batch_id": batch_id,
+        "merkle_proof_valid": proof_valid,
+        "onchain_root": onchain_root,
+        "leaf_hash": leaf_data["leaf_hash"],
+        "proof_steps": len(proof),
+        "record": record,
+        "decrypted_record": decrypted_record,
+    }
 
 
 @app.get("/health")

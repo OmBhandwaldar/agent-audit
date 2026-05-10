@@ -110,7 +110,7 @@ async def process_record(
 async def main() -> None:
     """Run 3 audit records through Phase 2 pipeline and anchor as a batch."""
     agent_id = os.getenv("AGENT_ID", "agent_001")
-    store = BatchStore()
+    store = BatchStore(db_path="./data/batcher_test.db")
 
     print(f"\n{'='*60}")
     print("AgentAudit Phase 2 -- Merkle Batch Checkpoint")
