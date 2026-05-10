@@ -2,24 +2,22 @@
 AgentAudit FastAPI backend.
 
 Endpoints:
-  POST /api/audit          — run the full audit pipeline for a payment
+  POST /api/audit          — run the full Phase 2 audit pipeline for a payment
   POST /api/chat           — autonomous agent: pick vendor from natural language prompt
-  GET  /api/verify         — independently verify any audit record by action ID
-  GET  /api/dashboard      — aggregate stats + recent audit history
+  GET  /api/verify         — verify audit record: Merkle proof + IPFS decryption
+  GET  /api/dashboard      — aggregate stats + recent audit history + batcher state
   GET  /api/export/csv     — download audit history as CSV
-  GET  /api/tamper-demo    — simulate tampering to prove hash detection works
+  GET  /api/tamper-demo    — simulate tampering to prove Merkle proof detection
 
 Run with: uvicorn api.main:app --reload --port 8000
 """
 
 import csv
 import io
-import json
 import logging
 import os
 import time
 from collections import deque
-from hashlib import sha256
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -27,11 +25,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from algorand.contract_client import get_audit_record
 from algorand.contract_client_v2 import get_anchor_root
 from batcher.anchor import flush_and_anchor
+from batcher.merkle import leaf_hash as compute_leaf_hash
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
+from crypto.payload import decrypt_payload
 from sdk.audit_flow import run_chat_flow
 from sdk.audit_flow_v2 import run_audit_flow_v2
 
@@ -88,39 +87,16 @@ class AuditResponse(BaseModel):
     batch_pending_count: int = 0
 
 
-class VerifyResponse(BaseModel):
-    """Response body from GET /api/verify."""
-
-    action_id: str
-    ipfs_hash_onchain: str   # SHA256 hex stored in the contract
-    ipfs_hash_computed: str  # SHA256 hex recomputed from fetched IPFS data
-    hash_match: bool         # True = verified, False = tampered or mismatch
-    record: dict             # Parsed on-chain audit record fields
-    ipfs_data: dict          # Full JSON fetched from IPFS
-
-
 class DashboardResponse(BaseModel):
     """Response body from GET /api/dashboard."""
 
     total_audits: int
     approved_count: int
     rejected_count: int
-    compliance_rate: float   # percentage 0–100
+    compliance_rate: float        # percentage 0–100
     recent_audits: list[dict]
-
-
-class TamperDemoResponse(BaseModel):
-    """Response body from GET /api/tamper-demo."""
-
-    action_id: str
-    field_tampered: str
-    original_value: str
-    tampered_value: str
-    hash_onchain: str        # immutable — stored in Algorand
-    hash_original: str       # recomputed from real IPFS data — matches on-chain
-    hash_tampered: str       # what tampered content would produce — does NOT match
-    match_original: bool     # always True for a valid record
-    match_tampered: bool     # always False — tamper detected
+    pending_leaves_count: int = 0
+    last_anchor_batch_id: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -229,65 +205,94 @@ async def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/verify", response_model=VerifyResponse)
-async def verify(action_id: str = Query(..., description="Action ID to verify")) -> VerifyResponse:
+@app.get("/api/verify")
+async def verify(action_id: str = Query(..., description="Action ID to verify")) -> dict:
     """
-    Independently verify an audit record by action ID.
+    Verify a Phase 2 audit record by action ID.
 
-    Fetches the audit record from Algorand, fetches the original decision
-    JSON from IPFS, recomputes the SHA256 hash, and compares it to what
-    is stored on-chain. Returns hash_match=True if the record is intact.
+    Looks up the leaf in SQLite, verifies the Merkle inclusion proof against
+    the on-chain root stored in AnchorContract, and decrypts the IPFS payload.
+
+    Returns nested verification + decryption sections so the frontend can show
+    proof validity and the original plaintext record independently.
     """
     logger.info("Verify request for action_id: %s", action_id)
 
-    # Step 1: Fetch on-chain record
+    leaf_data = batch_store.get_leaf(action_id)
+    if not leaf_data:
+        raise HTTPException(status_code=404, detail=f"No audit record found for action_id: {action_id}")
+
+    batch_id = leaf_data.get("batch_id")
+    proof = leaf_data.get("proof")
+    record = leaf_data["record"]
+
+    # Not yet anchored — batch still pending
+    if not batch_id or proof is None:
+        return {
+            "action_id": action_id,
+            "anchor_status": "pending",
+            "verification": {
+                "merkle_proof_valid": None,
+                "batch_id": None,
+                "merkle_root_onchain": None,
+            },
+            "decryption": {
+                "encrypted": True,
+                "decrypted": False,
+                "record": None,
+            },
+            "record_summary": _build_record_summary(record),
+        }
+
+    # Fetch on-chain root from AnchorContract
     try:
-        record = await get_audit_record(action_id)
+        onchain_root = await get_anchor_root(batch_id)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Audit record not found: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not fetch on-chain root: {e}")
 
-    if not record:
-        raise HTTPException(status_code=404, detail="Audit record not found")
+    proof_valid = verify_proof(leaf_data["leaf_hash"], proof, onchain_root)
+    logger.info("Verify result for %s: proof_valid=%s", action_id, proof_valid)
 
-    ipfs_hash_onchain = record.get("ipfs_hash", "")
+    # Decrypt IPFS payload using the CID stored in the record
+    ipfs_cid = record.get("ipfs_cid", "")
+    decrypted_record = None
+    decryption_ok = False
 
-    # Step 2: Fetch IPFS data and recompute hash
-    ipfs_data: dict = {}
-    ipfs_hash_computed = ""
+    if ipfs_cid:
+        try:
+            envelope = await _fetch_ipfs_by_cid(ipfs_cid)
+            decrypted_record = decrypt_payload(envelope)
+            decryption_ok = True
+        except Exception as e:
+            logger.warning("IPFS decrypt failed for %s: %s", action_id, e)
 
-    try:
-        cid, ipfs_data = await _fetch_ipfs_data(action_id)
-        ipfs_hash_computed = sha256(cid.encode()).hexdigest()
-    except Exception as e:
-        logger.warning("IPFS fetch failed for action_id %s: %s", action_id, e)
-        return VerifyResponse(
-            action_id=action_id,
-            ipfs_hash_onchain=ipfs_hash_onchain,
-            ipfs_hash_computed="",
-            hash_match=False,
-            record=record,
-            ipfs_data={},
-        )
-
-    hash_match = (ipfs_hash_onchain == ipfs_hash_computed)
-    logger.info("Verify result for %s: hash_match=%s", action_id, hash_match)
-
-    return VerifyResponse(
-        action_id=action_id,
-        ipfs_hash_onchain=ipfs_hash_onchain,
-        ipfs_hash_computed=ipfs_hash_computed,
-        hash_match=hash_match,
-        record=record,
-        ipfs_data=ipfs_data,
-    )
+    return {
+        "action_id": action_id,
+        "anchor_status": "anchored",
+        "verification": {
+            "merkle_proof_valid": proof_valid,
+            "batch_id": batch_id,
+            "leaf_hash": leaf_data["leaf_hash"],
+            "proof_steps": len(proof),
+            "merkle_root_onchain": onchain_root,
+        },
+        "decryption": {
+            "encrypted": True,
+            "decrypted": decryption_ok,
+            "record": decrypted_record,
+        },
+        "record_summary": _build_record_summary(record),
+    }
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
 async def dashboard() -> DashboardResponse:
     """
-    Return aggregate stats and recent audit history from the in-memory store.
+    Return aggregate stats, recent audit history, and current batcher state.
 
     Stats are computed from audits run since the server started.
+    Batcher state (pending_leaves_count, last_anchor_batch_id) reflects
+    the live SQLite store and survives server restarts.
     """
     audits = list(recent_audits)
     total = len(audits)
@@ -295,12 +300,17 @@ async def dashboard() -> DashboardResponse:
     rejected = total - approved
     compliance_rate = round((approved / total * 100), 1) if total > 0 else 0.0
 
+    recent = batch_store.recent_batches(limit=1)
+    last_anchor_batch_id = recent[0]["batch_id"] if recent else None
+
     return DashboardResponse(
         total_audits=total,
         approved_count=approved,
         rejected_count=rejected,
         compliance_rate=compliance_rate,
         recent_audits=audits,
+        pending_leaves_count=batch_store.size(),
+        last_anchor_batch_id=last_anchor_batch_id,
     )
 
 
@@ -343,64 +353,73 @@ async def export_csv():
     )
 
 
-@app.get("/api/tamper-demo", response_model=TamperDemoResponse)
-async def tamper_demo(action_id: str = Query(..., description="Action ID to simulate tampering on")) -> TamperDemoResponse:
+@app.get("/api/tamper-demo")
+async def tamper_demo(action_id: str = Query(..., description="Action ID to simulate tampering on")) -> dict:
     """
-    Simulate tampering with an audit record to demonstrate hash detection.
+    Simulate tampering with an audit record to demonstrate Merkle proof detection.
 
-    Fetches the real IPFS data, creates a tampered copy (changes amount to 1),
-    and shows that the tampered content would produce a different hash that
-    does NOT match what is stored on-chain — proving the audit trail is tamper-proof.
+    Fetches the real leaf from SQLite, verifies its Merkle proof against the
+    on-chain root (should pass), then recomputes the leaf hash with a tampered
+    amount field and verifies again (should fail) — proving the audit trail is
+    cryptographically tamper-proof without needing to compare hashes manually.
     """
     logger.info("Tamper demo request for action_id: %s", action_id)
 
-    # Step 1: Get on-chain hash (immutable, stored in Algorand)
+    leaf_data = batch_store.get_leaf(action_id)
+    if not leaf_data:
+        raise HTTPException(status_code=404, detail=f"No record found for action_id: {action_id}")
+
+    batch_id = leaf_data.get("batch_id")
+    proof = leaf_data.get("proof")
+    record = leaf_data["record"]
+
+    if not batch_id or proof is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Record is not yet anchored. Run POST /api/batch/submit first.",
+        )
+
+    # Fetch on-chain root
     try:
-        record = await get_audit_record(action_id)
+        onchain_root = await get_anchor_root(batch_id)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Audit record not found: {e}")
+        raise HTTPException(status_code=502, detail=f"Could not fetch on-chain root: {e}")
 
-    onchain_hash = record.get("ipfs_hash", "")
+    # Verify original leaf — must pass
+    original_leaf = leaf_data["leaf_hash"]
+    proof_original_valid = verify_proof(original_leaf, proof, onchain_root)
 
-    # Step 2: Fetch real IPFS data
-    try:
-        real_cid, real_ipfs_data = await _fetch_ipfs_data(action_id)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Could not fetch IPFS data: {e}")
-
-    # Step 3: Recompute hash from real data — should match on-chain
-    hash_original = sha256(real_cid.encode()).hexdigest()
-
-    # Step 4: Build tampered copy — change amount field to 1
-    original_amount = str(real_ipfs_data.get("amount", "unknown"))
-    tampered_data = dict(real_ipfs_data)
-    tampered_data["amount"] = 1
-
-    # Step 5: Simulate what IPFS would assign as a CID for the tampered content.
-    # IPFS CIDs are content-addressed — different content = different CID.
-    # We generate a deterministic fake CID to represent the tampered upload.
-    tampered_json = json.dumps(tampered_data, sort_keys=True)
-    simulated_tampered_cid = "Qm" + sha256(tampered_json.encode()).hexdigest()[:44]
-    hash_tampered = sha256(simulated_tampered_cid.encode()).hexdigest()
+    # Tamper: change amount to 1, recompute leaf hash, verify with same proof — must fail
+    tampered_record = dict(record)
+    original_amount = tampered_record.get("amount", 0)
+    tampered_record["amount"] = 1
+    tampered_leaf = compute_leaf_hash(tampered_record)
+    proof_tampered_valid = verify_proof(tampered_leaf, proof, onchain_root)
 
     logger.info(
-        "Tamper demo for %s: match_original=%s match_tampered=%s",
-        action_id,
-        hash_original == onchain_hash,
-        hash_tampered == onchain_hash,
+        "Tamper demo for %s: proof_original=%s proof_tampered=%s",
+        action_id, proof_original_valid, proof_tampered_valid,
     )
 
-    return TamperDemoResponse(
-        action_id=action_id,
-        field_tampered="amount",
-        original_value=original_amount,
-        tampered_value="1",
-        hash_onchain=onchain_hash,
-        hash_original=hash_original,
-        hash_tampered=hash_tampered,
-        match_original=(hash_original == onchain_hash),
-        match_tampered=(hash_tampered == onchain_hash),
-    )
+    return {
+        "action_id": action_id,
+        "explanation": (
+            "Changing any field in the audit record produces a different leaf hash. "
+            "The original Merkle proof does NOT validate against the on-chain root "
+            "for the tampered hash — making tampering cryptographically detectable."
+        ),
+        "field_tampered": "amount",
+        "original_value": original_amount,
+        "tampered_value": 1,
+        "leaf_hash_original": original_leaf,
+        "leaf_hash_tampered": tampered_leaf,
+        "merkle_root_onchain": onchain_root,
+        "batch_id": batch_id,
+        "proof_steps": len(proof),
+        "proof_original_valid": proof_original_valid,
+        "proof_tampered_valid": proof_tampered_valid,
+        "tamper_detected": not proof_tampered_valid,
+    }
 
 
 @app.post("/api/batch/submit")
@@ -527,6 +546,39 @@ async def health() -> dict:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _build_record_summary(record: dict) -> dict:
+    """Extract the fields shown in verify responses without the full record blob."""
+    return {
+        "decision": record.get("decision"),
+        "amount": record.get("amount"),
+        "vendor_id": record.get("vendor_id"),
+        "policy_result": record.get("policy_result"),
+        "asa_minted": record.get("asa_minted"),
+        "policy_tx_id": record.get("policy_tx_id"),
+        "ipfs_cid": record.get("ipfs_cid"),
+        "timestamp": record.get("timestamp"),
+    }
+
+
+async def _fetch_ipfs_by_cid(cid: str) -> dict:
+    """
+    Fetch and return JSON content from the IPFS gateway by CID.
+
+    Args:
+        cid: IPFS content identifier.
+
+    Returns:
+        Parsed JSON dict from the gateway.
+
+    Raises:
+        RuntimeError: If the gateway request fails.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(f"https://gateway.pinata.cloud/ipfs/{cid}")
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def _fetch_ipfs_data(action_id: str) -> tuple[str, dict]:
