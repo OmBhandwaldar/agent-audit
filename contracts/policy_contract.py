@@ -164,7 +164,6 @@ class PolicyContract(ARC4Contract):
         if both_pass:
             itxn.AssetTransfer(
                 xfer_asset=Asset(self.compliance_asa_id.value),
-                asset_sender=Global.current_application_address,
                 asset_receiver=Txn.sender,
                 asset_amount=1,
             ).submit()
