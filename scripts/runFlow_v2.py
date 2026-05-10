@@ -1,10 +1,11 @@
 """
-Day 2 checkpoint script for AgentAudit Phase 2.
+Phase 2 checkpoint script for AgentAudit.
 
-Tests the split-contract flow end-to-end (no batching or encryption yet):
-  1. Upload decision JSON to IPFS
-  2. Call PolicyContract.check_and_mint — policy check + AACR mint
-  3. Submit a single-leaf Merkle root to AnchorContract
+Tests the split-contract flow end-to-end with AES-GCM encryption:
+  1. Encrypt decision JSON with AES-GCM-256
+  2. Upload encrypted envelope to IPFS
+  3. Call PolicyContract.check_and_mint — policy check + AACR mint
+  4. Submit a single-leaf Merkle root to AnchorContract
 
 Usage:
   python scripts/runFlow_v2.py <amount> <vendor_id>
@@ -32,6 +33,7 @@ from algorand.contract_client_v2 import (
     submit_anchor_root,
     submit_policy_check,
 )
+from crypto.payload import decrypt_payload, encrypt_payload
 from ipfs.uploader import upload_to_ipfs
 
 
@@ -83,12 +85,18 @@ async def main() -> None:
         "timestamp": timestamp,
     }
 
-    # 3. Upload to IPFS
-    print("Uploading to IPFS...")
-    ipfs_cid = await upload_to_ipfs(record)
+    # 3. Encrypt then upload to IPFS
+    print("Encrypting and uploading to IPFS...")
+    envelope = encrypt_payload(record)
+    ipfs_cid = await upload_to_ipfs(envelope, name=action_id)
     ipfs_hash = hashlib.sha256(ipfs_cid.encode()).hexdigest()
-    print(f"  IPFS CID:  {ipfs_cid}")
+    print(f"  IPFS CID:  {ipfs_cid}  (encrypted)")
     print(f"  IPFS hash: {ipfs_hash[:16]}...")
+
+    # Verify decrypt round-trip locally before continuing
+    recovered = decrypt_payload(envelope)
+    assert recovered["action_id"] == action_id, "Decrypt round-trip failed"
+    print(f"  Decrypt:   OK (round-trip verified locally)")
     print()
 
     # 4. Call PolicyContract.check_and_mint
