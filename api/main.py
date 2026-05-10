@@ -32,7 +32,8 @@ from algorand.contract_client_v2 import get_anchor_root
 from batcher.anchor import flush_and_anchor
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
-from sdk.audit_flow import run_audit_flow, run_chat_flow
+from sdk.audit_flow import run_chat_flow
+from sdk.audit_flow_v2 import run_audit_flow_v2
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -83,6 +84,8 @@ class AuditResponse(BaseModel):
     policy_checks: dict
     agent_type_id: str
     agent_id: str
+    encrypted: bool = True
+    batch_pending_count: int = 0
 
 
 class VerifyResponse(BaseModel):
@@ -142,18 +145,21 @@ class ChatResponse(BaseModel):
 @app.post("/api/audit", response_model=AuditResponse)
 async def audit(req: AuditRequest) -> AuditResponse:
     """
-    Run the full audit pipeline for a payment amount and vendor.
+    Run the Phase 2 audit pipeline for a payment amount and vendor.
 
-    Calls the payment agent, uploads to IPFS, submits to Algorand
-    (where both amount and vendor policies are checked), and returns
-    the complete audit result including per-policy breakdown.
+    Encrypts the decision record with AES-GCM, uploads to IPFS, calls
+    PolicyContract (on-chain policy checks + AACR mint if both pass),
+    adds the record as a pending leaf in the SQLite batcher, and returns
+    the complete audit result. Records accumulate until POST /api/batch/submit
+    is called to flush and anchor the Merkle root on AnchorContract.
     """
     logger.info("Received audit request: amount=%d vendor_id=%s", req.amount, req.vendor_id)
     try:
-        result = await run_audit_flow(req.amount, req.vendor_id, req.agent_type_id)
+        result = await run_audit_flow_v2(req.amount, req.vendor_id, batch_store, req.agent_type_id)
         logger.info(
-            "Audit complete: action_id=%s decision=%s policy=%s",
-            result["action_id"], result["decision"], result["policy_result"],
+            "Audit complete: action_id=%s decision=%s policy=%s pending=%d",
+            result["action_id"], result["decision"],
+            result["policy_result"], result["batch_pending_count"],
         )
         # Store in history for dashboard and CSV export
         recent_audits.appendleft({
