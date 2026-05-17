@@ -13,6 +13,173 @@ import NavBar from "./NavBar"
 const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs"
 const TX_EXPLORER  = "https://testnet.explorer.perawallet.app/tx"
 
+/* ─── Merkle batch widget ─────────────────────────────────────────────────── */
+
+function BatchWidget({ apiBase, stats, onRefresh }) {
+  const [submitStatus, setSubmitStatus] = useState("idle") // "idle" | "submitting" | "success" | "error"
+  const [submitResult, setSubmitResult] = useState(null)
+  const [submitError,  setSubmitError]  = useState(null)
+
+  const pending = stats?.pending_leaves_count ?? 0
+  const lastBatchId = stats?.last_anchor_batch_id || null
+
+  const handleSubmit = async () => {
+    setSubmitStatus("submitting")
+    setSubmitError(null)
+    try {
+      const res = await fetch(`${apiBase}/api/batch/submit`, { method: "POST" })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.detail || "Batch submit failed")
+      }
+      const data = await res.json()
+      setSubmitResult(data)
+      setSubmitStatus("success")
+      onRefresh?.()
+    } catch (err) {
+      setSubmitError(err.message)
+      setSubmitStatus("error")
+    }
+  }
+
+  const handleDismiss = () => {
+    setSubmitStatus("idle")
+    setSubmitResult(null)
+    setSubmitError(null)
+  }
+
+  return (
+    <div className="bg-[#131313] border border-[#2a2a2a] rounded-2xl p-6 mb-8
+      flex flex-col gap-5 hover:border-[#484847]/60 transition-colors duration-200">
+
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-[#ff4f00]/12 flex items-center justify-center">
+            <span className="material-symbols-outlined text-lg text-[#ff4f00]">account_tree</span>
+          </div>
+          <div>
+            <h3 className="headline font-bold text-white tracking-tight">Merkle Batch Anchor</h3>
+            <p className="text-[11px] text-[#767575] font-label mt-0.5">
+              Flush pending audit leaves into a Merkle root and anchor on-chain
+            </p>
+          </div>
+        </div>
+
+        {/* Pending count pill */}
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-full border
+          ${pending > 0
+            ? "bg-[#febc2e]/8 border-[#febc2e]/25 text-[#febc2e]"
+            : "bg-[#131313] border-[#2a2a2a] text-[#767575]"}`}>
+          <span className="material-symbols-outlined text-sm">
+            {pending > 0 ? "hourglass_top" : "task_alt"}
+          </span>
+          <span className="text-xs font-label font-semibold">
+            {pending} {pending === 1 ? "leaf" : "leaves"} pending
+          </span>
+        </div>
+      </div>
+
+      {/* Action row */}
+      {submitStatus === "idle" && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={pending === 0}
+            className="flex items-center justify-center gap-2 bg-[#ff4f00] text-[#591800]
+              px-5 py-3 rounded-xl font-bold text-sm headline hover:scale-95 active:opacity-80
+              transition-all duration-150 cursor-pointer
+              disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100
+              shadow-[0_4px_16px_-4px_rgba(255,79,0,0.5)]"
+            title={pending === 0 ? "No pending leaves to anchor" : "Compute Merkle root and anchor on AnchorContract"}
+          >
+            <span className="material-symbols-outlined text-base"
+              style={{ fontVariationSettings: "'FILL' 1" }}>publish</span>
+            Submit Batch
+          </button>
+
+          {lastBatchId && (
+            <p className="text-[11px] text-[#767575] font-label font-mono">
+              Last anchored: <span className="text-[#adaaaa]">{lastBatchId}</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Submitting */}
+      {submitStatus === "submitting" && (
+        <div className="flex items-center gap-3 text-[#adaaaa] text-sm font-label py-1">
+          <div className="w-5 h-5 border-2 border-[#2a2a2a] border-t-[#ff4f00] rounded-full animate-spin" />
+          <span>Computing Merkle root and anchoring on AnchorContract…</span>
+        </div>
+      )}
+
+      {/* Success */}
+      {submitStatus === "success" && submitResult && (
+        <div className="flex flex-col gap-3 bg-[#0e0e0e] border border-[#26fedc]/20 rounded-xl p-4">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-base text-[#26fedc]"
+              style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+            <span className="text-xs font-label font-bold text-[#26fedc] uppercase tracking-wider">
+              Batch anchored on Algorand
+            </span>
+          </div>
+          <div className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-1.5 text-[11px]">
+            <span className="text-[#484847] font-label uppercase tracking-wider">Batch ID</span>
+            <span className="font-mono text-[#adaaaa] break-all">{submitResult.batch_id}</span>
+
+            <span className="text-[#484847] font-label uppercase tracking-wider">Leaves</span>
+            <span className="font-mono text-[#adaaaa]">{submitResult.leaf_count}</span>
+
+            <span className="text-[#484847] font-label uppercase tracking-wider">Merkle root</span>
+            <span className="font-mono text-[#adaaaa] break-all" title={submitResult.merkle_root}>
+              {truncate(submitResult.merkle_root, 48)}
+            </span>
+
+            <span className="text-[#484847] font-label uppercase tracking-wider">Anchor TX</span>
+            <a
+              href={`${TX_EXPLORER}/${submitResult.anchor_tx_id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-[#ff4f00]/80 hover:text-[#ff4f00] transition-colors break-all"
+              title={submitResult.anchor_tx_id}
+            >
+              {truncate(submitResult.anchor_tx_id, 48)} ↗
+            </a>
+          </div>
+          <button
+            onClick={handleDismiss}
+            className="self-start text-[11px] text-[#767575] hover:text-white font-label
+              underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Error */}
+      {submitStatus === "error" && (
+        <div className="flex flex-col gap-2 bg-[#0e0e0e] border border-[#f61468]/25 rounded-xl p-4">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-base text-[#ff6d8e]">error</span>
+            <span className="text-xs font-label font-bold text-[#ff6d8e] uppercase tracking-wider">
+              Batch submit failed
+            </span>
+          </div>
+          <p className="text-[11px] text-[#adaaaa] font-mono break-all">{submitError}</p>
+          <button
+            onClick={handleDismiss}
+            className="self-start text-[11px] text-[#767575] hover:text-white font-label
+              underline decoration-dotted underline-offset-2 cursor-pointer transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function truncate(str, max = 16) {
   if (!str || str.length <= max) return str
   return str.slice(0, max) + "…"
@@ -263,9 +430,9 @@ function ComplianceBar({ rate }) {
 /* ─── Verify modal ───────────────────────────────────────────────────────── */
 
 const VERIFY_STEPS = [
-  "Fetching audit record from Algorand",
-  "Retrieving evidence from IPFS",
-  "Verifying hash integrity",
+  "Looking up leaf in batch store",
+  "Fetching Merkle root from AnchorContract",
+  "Verifying Merkle proof and decrypting IPFS payload",
 ]
 
 function VerifyModal({ apiBase, onClose }) {
@@ -362,7 +529,14 @@ function VerifyModal({ apiBase, onClose }) {
     setTamperError(null)
   }
 
-  const verified = verifyResult?.hash_match
+  // New nested response shape from Phase 2 /api/verify
+  const anchorStatus    = verifyResult?.anchor_status || "unknown"
+  const isAnchored      = anchorStatus === "anchored"
+  const proofValid      = verifyResult?.verification?.merkle_proof_valid === true
+  const decryptedOk     = verifyResult?.decryption?.decrypted === true
+  const decryptedRecord = verifyResult?.decryption?.record
+  const summary         = verifyResult?.record_summary
+  const verified        = isAnchored && proofValid
 
   return (
     /* Backdrop */
@@ -464,84 +638,158 @@ function VerifyModal({ apiBase, onClose }) {
         {verifyStatus === "result" && verifyResult && (
           <div className="flex flex-col gap-5">
 
-            {/* Hash status banner */}
+            {/* Anchor + proof banner */}
             <div className={`flex items-center gap-3 px-5 py-4 rounded-xl border ${
-              verified
-                ? "bg-[#ff4f00]/8 border-[#ff4f00]/20"
-                : "bg-[#f61468]/8 border-[#f61468]/20"
+              !isAnchored
+                ? "bg-[#febc2e]/8 border-[#febc2e]/25"
+                : verified
+                  ? "bg-[#ff4f00]/8 border-[#ff4f00]/20"
+                  : "bg-[#f61468]/8 border-[#f61468]/20"
             }`}>
               <span className="material-symbols-outlined text-2xl"
                 style={{
-                  color: verified ? "#ff4f00" : "#ff6d8e",
+                  color: !isAnchored ? "#febc2e" : verified ? "#ff4f00" : "#ff6d8e",
                   fontVariationSettings: "'FILL' 1",
                 }}>
-                {verified ? "verified" : "gpp_bad"}
+                {!isAnchored ? "schedule" : verified ? "verified" : "gpp_bad"}
               </span>
               <div>
                 <p className="font-bold headline text-lg tracking-tight"
-                  style={{ color: verified ? "#ff4f00" : "#ff6d8e" }}>
-                  {verified ? "Hash Verified" : "Hash Mismatch"}
+                  style={{ color: !isAnchored ? "#febc2e" : verified ? "#ff4f00" : "#ff6d8e" }}>
+                  {!isAnchored
+                    ? "Pending anchor"
+                    : verified ? "Merkle Proof Verified" : "Merkle Proof Failed"}
                 </p>
                 <p className="text-[11px] font-label text-[#767575] mt-0.5">
-                  {verified
-                    ? "On-chain hash matches IPFS record — audit is authentic"
-                    : "On-chain hash does not match IPFS data — record may have been tampered"}
+                  {!isAnchored
+                    ? "Leaf is in the pending batch — submit the batch to anchor on-chain"
+                    : verified
+                      ? "Inclusion proof validates against the on-chain Merkle root"
+                      : "Proof does not validate against the on-chain root — record may be tampered"}
                 </p>
               </div>
             </div>
 
-            {/* Record details */}
+            {/* Two-state badges: proof + decryption */}
+            {isAnchored && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${
+                  proofValid
+                    ? "bg-[#26fedc]/8 border-[#26fedc]/25"
+                    : "bg-[#f61468]/8 border-[#f61468]/25"
+                }`}>
+                  <span className="material-symbols-outlined text-base"
+                    style={{ color: proofValid ? "#26fedc" : "#ff6d8e", fontVariationSettings: "'FILL' 1" }}>
+                    {proofValid ? "check_circle" : "cancel"}
+                  </span>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-label uppercase tracking-wider text-[#767575]">Merkle Proof</span>
+                    <span className="text-[12px] font-label font-semibold"
+                      style={{ color: proofValid ? "#26fedc" : "#ff6d8e" }}>
+                      {proofValid ? "Valid" : "Invalid"}
+                    </span>
+                  </div>
+                </div>
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${
+                  decryptedOk
+                    ? "bg-[#26fedc]/8 border-[#26fedc]/25"
+                    : "bg-[#febc2e]/8 border-[#febc2e]/25"
+                }`}>
+                  <span className="material-symbols-outlined text-base"
+                    style={{ color: decryptedOk ? "#26fedc" : "#febc2e", fontVariationSettings: "'FILL' 1" }}>
+                    {decryptedOk ? "lock_open" : "lock"}
+                  </span>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-label uppercase tracking-wider text-[#767575]">IPFS Payload</span>
+                    <span className="text-[12px] font-label font-semibold"
+                      style={{ color: decryptedOk ? "#26fedc" : "#febc2e" }}>
+                      {decryptedOk ? "Decrypted" : "Encrypted (no key)"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* On-chain verification details */}
             <div className="grid grid-cols-[130px_1fr] gap-x-4 gap-y-2.5 text-[11px]
               bg-[#131313] rounded-xl p-5 border border-[#2a2a2a]">
 
               <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Action ID</span>
               <span className="font-mono text-[#adaaaa] break-all">{verifyResult.action_id}</span>
 
-              <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Hash (on-chain)</span>
-              <span className="font-mono text-[#adaaaa] break-all" title={verifyResult.ipfs_hash_onchain}>
-                {truncate(verifyResult.ipfs_hash_onchain, 36)}
-              </span>
-
-              <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Hash (recomputed)</span>
-              <span className="font-mono break-all"
-                style={{ color: verified ? "#ff4f00" : "#ff6d8e" }}
-                title={verifyResult.ipfs_hash_computed}>
-                {truncate(verifyResult.ipfs_hash_computed || "—", 36)}
-              </span>
-
-              {verifyResult.record && (
+              {isAnchored && (
                 <>
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Decision</span>
-                  <span className="font-label font-semibold"
-                    style={{ color: verifyResult.record.decision === "approved" ? "#26fedc" : "#ff6d8e" }}>
-                    {verifyResult.record.decision}
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Batch ID</span>
+                  <span className="font-mono text-[#adaaaa] break-all">{verifyResult.verification.batch_id}</span>
+
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Leaf hash</span>
+                  <span className="font-mono text-[#adaaaa] break-all"
+                    title={verifyResult.verification.leaf_hash}>
+                    {truncate(verifyResult.verification.leaf_hash, 36)}
                   </span>
 
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Policy Result</span>
-                  <span className="font-mono text-[#adaaaa]">{verifyResult.record.policy_result}</span>
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Proof steps</span>
+                  <span className="font-mono text-[#adaaaa]">{verifyResult.verification.proof_steps}</span>
 
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Vendor ID</span>
-                  <span className="font-mono text-[#adaaaa]">{verifyResult.record.vendor_id}</span>
-
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Agent ID</span>
-                  <span className="font-mono text-[#adaaaa]">{verifyResult.record.agent_id}</span>
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Merkle root</span>
+                  <span className="font-mono break-all"
+                    style={{ color: proofValid ? "#ff4f00" : "#ff6d8e" }}
+                    title={verifyResult.verification.merkle_root_onchain}>
+                    {truncate(verifyResult.verification.merkle_root_onchain, 36)}
+                  </span>
                 </>
               )}
 
-              {verifyResult.ipfs_data?.action_id && (
+              {summary && (
                 <>
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">IPFS Content</span>
-                  <a href={`${IPFS_GATEWAY}/${verifyResult.ipfs_data.ipfs_cid || ""}`}
-                    target="_blank" rel="noreferrer"
-                    className="font-mono text-[#ff4f00]/70 hover:text-[#ff4f00] transition-colors">
-                    View on IPFS ↗
-                  </a>
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Decision</span>
+                  <span className="font-label font-semibold"
+                    style={{ color: summary.decision === "approved" ? "#26fedc" : "#ff6d8e" }}>
+                    {summary.decision} {summary.asa_minted && "· 1 AACR"}
+                  </span>
+
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Policy result</span>
+                  <span className="font-mono text-[#adaaaa]">{summary.policy_result}</span>
+
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Vendor ID</span>
+                  <span className="font-mono text-[#adaaaa]">{summary.vendor_id}</span>
+
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Amount</span>
+                  <span className="font-mono text-[#adaaaa]">₹{summary.amount?.toLocaleString?.() ?? summary.amount}</span>
+
+                  {summary.ipfs_cid && (
+                    <>
+                      <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">IPFS</span>
+                      <a href={`${IPFS_GATEWAY}/${summary.ipfs_cid}`}
+                        target="_blank" rel="noreferrer"
+                        className="font-mono text-[#ff4f00]/70 hover:text-[#ff4f00] transition-colors break-all"
+                        title={summary.ipfs_cid}>
+                        {truncate(summary.ipfs_cid, 36)} ↗
+                      </a>
+                    </>
+                  )}
                 </>
               )}
             </div>
 
-            {/* Tamper detection demo */}
-            {/* {verified && (
+            {/* Decrypted plaintext */}
+            {decryptedOk && decryptedRecord && (
+              <div className="bg-[#131313] border border-[#26fedc]/20 rounded-xl p-5 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-sm text-[#26fedc]">lock_open</span>
+                  <span className="text-[10px] font-label font-bold text-[#26fedc] uppercase tracking-wider">
+                    Decrypted IPFS payload — agent's pre-policy record
+                  </span>
+                </div>
+                <pre className="bg-[#0a0a0a] border border-[#1a1919] rounded-lg p-3 text-[11px]
+                  font-mono text-[#adaaaa] overflow-x-auto leading-relaxed">
+{JSON.stringify(decryptedRecord, null, 2)}
+                </pre>
+              </div>
+            )}
+
+            {/* Tamper demo — only when proof valid */}
+            {verified && (
               <div className="bg-[#131313] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-4">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-sm text-[#febc2e]">science</span>
@@ -550,7 +798,8 @@ function VerifyModal({ apiBase, onClose }) {
                   </span>
                 </div>
                 <p className="text-[12px] text-[#767575] font-label leading-relaxed">
-                  Prove the system instantly detects any modification to this record.
+                  Tampering changes the leaf hash → the same Merkle proof no longer validates against
+                  the on-chain root.
                 </p>
 
                 {tamperStatus === "idle" && (
@@ -568,7 +817,7 @@ function VerifyModal({ apiBase, onClose }) {
                 {tamperStatus === "loading" && (
                   <div className="flex items-center gap-3 text-[#767575] text-sm font-label py-1">
                     <span className="w-4 h-4 border-2 border-[#2a2a2a] border-t-[#febc2e] rounded-full animate-spin" />
-                    Simulating tampered record…
+                    Recomputing leaf hash and re-verifying proof…
                   </div>
                 )}
 
@@ -582,32 +831,64 @@ function VerifyModal({ apiBase, onClose }) {
                       Field modified:{" "}
                       <span className="font-mono text-[11px]">{tamperResult.field_tampered}</span>
                       {" "}changed from{" "}
-                      <span className="font-mono text-[11px] text-[#26fedc]">₹{tamperResult.original_value}</span>
+                      <span className="font-mono text-[11px] text-[#26fedc]">
+                        ₹{tamperResult.original_value?.toLocaleString?.() ?? tamperResult.original_value}
+                      </span>
                       {" "}to{" "}
-                      <span className="font-mono text-[11px] text-[#ff6d8e]">₹{tamperResult.tampered_value}</span>
+                      <span className="font-mono text-[11px] text-[#ff6d8e]">
+                        ₹{tamperResult.tampered_value}
+                      </span>
                     </p>
+
+                    {/* Proof status cards */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-[#26fedc]/8 border border-[#26fedc]/25 rounded-lg px-3 py-2.5
+                        flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-[#26fedc]"
+                          style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-label uppercase tracking-wider text-[#767575]">Original leaf</span>
+                          <span className="text-[11px] font-label font-semibold text-[#26fedc]">
+                            Proof valid
+                          </span>
+                        </div>
+                      </div>
+                      <div className="bg-[#f61468]/8 border border-[#f61468]/25 rounded-lg px-3 py-2.5
+                        flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-[#ff6d8e]"
+                          style={{ fontVariationSettings: "'FILL' 1" }}>cancel</span>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-label uppercase tracking-wider text-[#767575]">Tampered leaf</span>
+                          <span className="text-[11px] font-label font-semibold text-[#ff6d8e]">
+                            Proof invalid
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-[11px]
                       bg-[#0e0e0e] rounded-lg p-4 border border-[#2a2a2a]">
-                      <span className="text-[#484847] font-label">Hash (on-chain)</span>
-                      <span className="font-mono text-[#adaaaa] break-all" title={tamperResult.hash_onchain}>
-                        {truncate(tamperResult.hash_onchain, 26)}
+                      <span className="text-[#484847] font-label">Merkle root</span>
+                      <span className="font-mono text-[#adaaaa] break-all" title={tamperResult.merkle_root_onchain}>
+                        {truncate(tamperResult.merkle_root_onchain, 26)}
                       </span>
                       <span className="text-[#484847] font-label">Original hash</span>
-                      <span className="font-mono text-[#26fedc] break-all" title={tamperResult.hash_original}>
-                        {truncate(tamperResult.hash_original, 26)} ✓
+                      <span className="font-mono text-[#26fedc] break-all" title={tamperResult.leaf_hash_original}>
+                        {truncate(tamperResult.leaf_hash_original, 26)} ✓
                       </span>
                       <span className="text-[#484847] font-label">Tampered hash</span>
-                      <span className="font-mono text-[#ff6d8e] break-all" title={tamperResult.hash_tampered}>
-                        {truncate(tamperResult.hash_tampered, 26)} ✗
+                      <span className="font-mono text-[#ff6d8e] break-all" title={tamperResult.leaf_hash_tampered}>
+                        {truncate(tamperResult.leaf_hash_tampered, 26)} ✗
                       </span>
                     </div>
                     <p className="text-[11px] text-[#484847] font-label leading-relaxed pt-1">
-                      Any modification produces a different hash. The on-chain hash is immutable — tampering is immediately detectable.
+                      The on-chain Merkle root is immutable. Any modification to the record produces
+                      a different leaf hash whose proof fails against that root — cryptographic tamper detection.
                     </p>
                   </div>
                 )}
               </div>
-            )} */}
+            )}
 
             {/* Reset */}
             <button
@@ -789,6 +1070,11 @@ function AuditDashboardPage({ apiBase }) {
               </div>
             </div>
           </div>
+        )}
+
+        {/* ── Merkle batch widget ── */}
+        {isReady && (
+          <BatchWidget apiBase={apiBase} stats={stats} onRefresh={() => fetchDashboard(true)} />
         )}
 
         {/* ── Audit history table ── */}

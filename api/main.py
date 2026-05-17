@@ -31,8 +31,7 @@ from batcher.merkle import leaf_hash as compute_leaf_hash
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
 from crypto.payload import decrypt_payload
-from sdk.audit_flow import run_chat_flow
-from sdk.audit_flow_v2 import run_audit_flow_v2
+from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -173,7 +172,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
     """
     logger.info("Chat request: %s", req.message)
     try:
-        result = await run_chat_flow(req.message, req.agent_type_id)
+        result = await run_chat_flow_v2(req.message, batch_store, req.agent_type_id)
 
         # Off-topic: agent replied without running the pipeline
         if result.get("off_topic"):

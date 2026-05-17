@@ -24,6 +24,7 @@ function truncate(str, max = 20) {
 
 function AuditSummary({ audit }) {
   const approved = audit.decision === "approved"
+  const pending = audit.batch_pending_count ?? 0
   return (
     <div className="mt-3 rounded-xl border border-[#2a2a2a] bg-[#0e0e0e] p-4 flex flex-col gap-3">
 
@@ -33,7 +34,7 @@ function AuditSummary({ audit }) {
       </span>
 
       {/* Decision badge */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5 flex-wrap">
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold font-label border
           ${approved
             ? "bg-[#26fedc]/8 text-[#26fedc] border-[#26fedc]/20"
@@ -46,7 +47,26 @@ function AuditSummary({ audit }) {
           {approved ? "Approved" : "Rejected"}
         </span>
         <span className="font-mono text-[10px] text-[#484847]">{audit.policy_result}</span>
+        {audit.encrypted && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-mono text-[#adaaaa]
+            border border-[#2a2a2a] px-2 py-0.5 rounded-full">
+            <span className="material-symbols-outlined text-[10px]">lock</span>
+            AES-GCM
+          </span>
+        )}
       </div>
+
+      {/* Pending anchor pill */}
+      {pending > 0 && (
+        <div className="flex items-center gap-2 text-[11px] font-label text-[#febc2e] bg-[#febc2e]/8
+          border border-[#febc2e]/20 rounded-lg px-3 py-2">
+          <span className="material-symbols-outlined text-sm">schedule</span>
+          <span>
+            Leaf pending Merkle anchor —{" "}
+            <span className="font-semibold">{pending} record{pending === 1 ? "" : "s"} in batch</span>
+          </span>
+        </div>
+      )}
 
       {/* Links grid */}
       <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-1.5 text-[11px]">
@@ -56,7 +76,7 @@ function AuditSummary({ audit }) {
           {truncate(audit.ipfs_cid, 24)}
         </a>
 
-        <span className="text-[#767575] font-label uppercase tracking-wider self-center">Algorand</span>
+        <span className="text-[#767575] font-label uppercase tracking-wider self-center">Policy TX</span>
         <a href={`${TX_EXPLORER}/${audit.algorand_tx_id}`} target="_blank" rel="noreferrer"
           className="font-mono text-[#ff4f00]/70 hover:text-[#ff4f00] transition-colors truncate">
           {truncate(audit.algorand_tx_id, 24)}
