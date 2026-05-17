@@ -437,6 +437,9 @@ const VERIFY_STEPS = [
 
 function VerifyModal({ apiBase, onClose }) {
   const [actionIdInput, setActionIdInput] = useState("")
+  const [auditorKey,    setAuditorKey]    = useState("")
+  const [showKey,       setShowKey]       = useState(false)
+  const [decryptStatus, setDecryptStatus] = useState("idle")    // "idle"|"loading"
   const [verifyStatus,  setVerifyStatus]  = useState("input")   // "input"|"loading"|"result"
   const [verifyResult,  setVerifyResult]  = useState(null)
   const [verifyError,   setVerifyError]   = useState(null)
@@ -444,6 +447,12 @@ function VerifyModal({ apiBase, onClose }) {
   const [tamperStatus,  setTamperStatus]  = useState("idle")    // "idle"|"loading"|"result"
   const [tamperResult,  setTamperResult]  = useState(null)
   const [tamperError,   setTamperError]   = useState(null)
+
+  // Build fetch options with the auditor key header if one is provided.
+  const buildFetchOpts = (keyOverride) => {
+    const key = (keyOverride ?? auditorKey).trim()
+    return key ? { headers: { "X-Auditor-Key": key } } : undefined
+  }
 
   const handleVerify = async () => {
     if (!actionIdInput.trim()) { setVerifyError("Please enter an action ID"); return }
@@ -475,7 +484,8 @@ function VerifyModal({ apiBase, onClose }) {
 
     try {
       const res = await fetch(
-        `${apiBase}/api/verify?action_id=${encodeURIComponent(actionIdInput.trim())}`
+        `${apiBase}/api/verify?action_id=${encodeURIComponent(actionIdInput.trim())}`,
+        buildFetchOpts()
       )
       clearTimeout(t1)
       clearTimeout(t2)
@@ -496,6 +506,29 @@ function VerifyModal({ apiBase, onClose }) {
       setVerifyError(err.message)
       setVerifyStatus("input")
       setSteps([])
+    }
+  }
+
+  // Re-call /api/verify with the currently-entered auditor key.
+  // Used after an initial keyless verify so the demo can reveal the plaintext.
+  const handleDecrypt = async () => {
+    if (!auditorKey.trim()) return
+    setDecryptStatus("loading")
+    try {
+      const res = await fetch(
+        `${apiBase}/api/verify?action_id=${encodeURIComponent(verifyResult.action_id)}`,
+        buildFetchOpts()
+      )
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.detail || "Decryption call failed")
+      }
+      const data = await res.json()
+      setVerifyResult(data)
+    } catch (err) {
+      setVerifyError(err.message)
+    } finally {
+      setDecryptStatus("idle")
     }
   }
 
@@ -524,19 +557,27 @@ function VerifyModal({ apiBase, onClose }) {
     setVerifyResult(null)
     setVerifyError(null)
     setActionIdInput("")
+    setAuditorKey("")
+    setShowKey(false)
+    setDecryptStatus("idle")
     setTamperStatus("idle")
     setTamperResult(null)
     setTamperError(null)
   }
 
   // New nested response shape from Phase 2 /api/verify
-  const anchorStatus    = verifyResult?.anchor_status || "unknown"
-  const isAnchored      = anchorStatus === "anchored"
-  const proofValid      = verifyResult?.verification?.merkle_proof_valid === true
-  const decryptedOk     = verifyResult?.decryption?.decrypted === true
-  const decryptedRecord = verifyResult?.decryption?.record
-  const summary         = verifyResult?.record_summary
-  const verified        = isAnchored && proofValid
+  const anchorStatus      = verifyResult?.anchor_status || "unknown"
+  const isAnchored        = anchorStatus === "anchored"
+  const proofValid        = verifyResult?.verification?.merkle_proof_valid === true
+  const decryption        = verifyResult?.decryption || {}
+  const decryptedOk       = decryption.decrypted === true
+  const decryptedRecord   = decryption.record
+  const keyProvided       = decryption.key_provided === true
+  const keyInvalid        = keyProvided && decryption.key_valid === false
+  const ciphertextEnvelope = decryption.envelope
+  const decryptionError   = decryption.error
+  const summary           = verifyResult?.record_summary
+  const verified          = isAnchored && proofValid
 
   return (
     /* Backdrop */
@@ -569,36 +610,72 @@ function VerifyModal({ apiBase, onClose }) {
 
         {/* ── Input ── */}
         {verifyStatus === "input" && (
-          <div className="flex flex-col gap-3">
-            <label className="text-[10px] font-label font-semibold text-[#484847] uppercase tracking-wider">
-              Action ID
-            </label>
-            <div className="flex gap-2">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-label font-semibold text-[#484847] uppercase tracking-wider">
+                Action ID
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="flex-1 bg-[#131313] border border-[#2a2a2a] rounded-xl px-4 py-3
+                    text-sm text-white font-body outline-none
+                    focus:border-[#ff4f00]/50 transition-colors duration-150
+                    placeholder:text-[#484847]"
+                  placeholder="e.g. 1743600000_1234"
+                  value={actionIdInput}
+                  onChange={e => setActionIdInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleVerify()}
+                  autoFocus
+                />
+                <button
+                  onClick={handleVerify}
+                  disabled={!actionIdInput.trim()}
+                  className="flex items-center gap-2 bg-[#ff4f00] text-[#591800] px-5 py-3 rounded-xl
+                    font-bold text-sm headline hover:scale-95 active:opacity-80 transition-all duration-150
+                    cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100
+                    shadow-[0_4px_16px_-4px_rgba(255,79,0,0.5)] shrink-0"
+                >
+                  <span className="material-symbols-outlined text-base"
+                    style={{ fontVariationSettings: "'FILL' 1" }}>search</span>
+                  Verify
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-label font-semibold text-[#484847] uppercase tracking-wider">
+                  Auditor Key <span className="text-[#484847] normal-case font-normal">— optional</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowKey(s => !s)}
+                  className="text-[10px] font-label text-[#484847] hover:text-[#adaaaa]
+                    transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-[12px]">
+                    {showKey ? "visibility_off" : "visibility"}
+                  </span>
+                  {showKey ? "Hide" : "Show"}
+                </button>
+              </div>
               <input
-                type="text"
-                className="flex-1 bg-[#131313] border border-[#2a2a2a] rounded-xl px-4 py-3
-                  text-sm text-white font-body outline-none
+                type={showKey ? "text" : "password"}
+                className="bg-[#131313] border border-[#2a2a2a] rounded-xl px-4 py-3
+                  text-sm text-white font-mono outline-none
                   focus:border-[#ff4f00]/50 transition-colors duration-150
                   placeholder:text-[#484847]"
-                placeholder="e.g. 1743600000_1234"
-                value={actionIdInput}
-                onChange={e => setActionIdInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleVerify()}
-                autoFocus
+                placeholder="64-char hex AES-256 key (leave blank to view encrypted only)"
+                value={auditorKey}
+                onChange={e => setAuditorKey(e.target.value)}
               />
-              <button
-                onClick={handleVerify}
-                disabled={!actionIdInput.trim()}
-                className="flex items-center gap-2 bg-[#ff4f00] text-[#591800] px-5 py-3 rounded-xl
-                  font-bold text-sm headline hover:scale-95 active:opacity-80 transition-all duration-150
-                  cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100
-                  shadow-[0_4px_16px_-4px_rgba(255,79,0,0.5)] shrink-0"
-              >
-                <span className="material-symbols-outlined text-base"
-                  style={{ fontVariationSettings: "'FILL' 1" }}>search</span>
-                Verify
-              </button>
+              <p className="text-[10px] font-label text-[#484847] leading-relaxed">
+                The Merkle proof is verified publicly. The auditor key only unlocks
+                the IPFS payload contents.
+              </p>
             </div>
+
             {verifyError && (
               <p className="text-sm text-[#ff6d8e] font-label flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-sm">error</span>
@@ -693,17 +770,26 @@ function VerifyModal({ apiBase, onClose }) {
                 <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${
                   decryptedOk
                     ? "bg-[#26fedc]/8 border-[#26fedc]/25"
-                    : "bg-[#febc2e]/8 border-[#febc2e]/25"
+                    : keyInvalid
+                      ? "bg-[#f61468]/8 border-[#f61468]/25"
+                      : "bg-[#febc2e]/8 border-[#febc2e]/25"
                 }`}>
                   <span className="material-symbols-outlined text-base"
-                    style={{ color: decryptedOk ? "#26fedc" : "#febc2e", fontVariationSettings: "'FILL' 1" }}>
-                    {decryptedOk ? "lock_open" : "lock"}
+                    style={{
+                      color: decryptedOk ? "#26fedc" : keyInvalid ? "#ff6d8e" : "#febc2e",
+                      fontVariationSettings: "'FILL' 1",
+                    }}>
+                    {decryptedOk ? "lock_open" : keyInvalid ? "key_off" : "lock"}
                   </span>
                   <div className="flex flex-col">
                     <span className="text-[10px] font-label uppercase tracking-wider text-[#767575]">IPFS Payload</span>
                     <span className="text-[12px] font-label font-semibold"
-                      style={{ color: decryptedOk ? "#26fedc" : "#febc2e" }}>
-                      {decryptedOk ? "Decrypted" : "Encrypted (no key)"}
+                      style={{ color: decryptedOk ? "#26fedc" : keyInvalid ? "#ff6d8e" : "#febc2e" }}>
+                      {decryptedOk
+                        ? "Decrypted"
+                        : keyInvalid
+                          ? "Wrong key"
+                          : "Encrypted (no key)"}
                     </span>
                   </div>
                 </div>
@@ -771,6 +857,82 @@ function VerifyModal({ apiBase, onClose }) {
                 </>
               )}
             </div>
+
+            {/* Encrypted blob preview + decrypt panel (only when not yet decrypted) */}
+            {isAnchored && !decryptedOk && ciphertextEnvelope && (
+              <div className="bg-[#131313] border border-[#febc2e]/20 rounded-xl p-5 flex flex-col gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-sm text-[#febc2e]"
+                    style={{ fontVariationSettings: "'FILL' 1" }}>lock</span>
+                  <span className="text-[10px] font-label font-bold text-[#febc2e] uppercase tracking-wider">
+                    Encrypted IPFS payload — auditor key required
+                  </span>
+                </div>
+                <p className="text-[12px] text-[#767575] font-label leading-relaxed">
+                  This is what anyone fetching the public IPFS CID sees. The contents
+                  are AES-GCM-256 ciphertext until decrypted with the auditor key.
+                </p>
+                <pre className="bg-[#0a0a0a] border border-[#1a1919] rounded-lg p-3 text-[11px]
+                  font-mono text-[#484847] overflow-x-auto leading-relaxed max-h-32">
+{JSON.stringify(ciphertextEnvelope, null, 2)}
+                </pre>
+
+                {/* Inline key input → re-call /api/verify with header */}
+                <div className="flex flex-col gap-2 pt-2 border-t border-[#1a1919]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-label font-semibold text-[#adaaaa] uppercase tracking-wider">
+                      Paste auditor key to decrypt
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowKey(s => !s)}
+                      className="text-[10px] font-label text-[#484847] hover:text-[#adaaaa]
+                        transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">
+                        {showKey ? "visibility_off" : "visibility"}
+                      </span>
+                      {showKey ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type={showKey ? "text" : "password"}
+                      className="flex-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2.5
+                        text-[12px] text-white font-mono outline-none
+                        focus:border-[#febc2e]/50 transition-colors duration-150
+                        placeholder:text-[#484847]"
+                      placeholder="64-char hex AES-256 key"
+                      value={auditorKey}
+                      onChange={e => setAuditorKey(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleDecrypt()}
+                    />
+                    <button
+                      onClick={handleDecrypt}
+                      disabled={!auditorKey.trim() || decryptStatus === "loading"}
+                      className="flex items-center gap-2 bg-[#febc2e] text-[#3a2900] px-4 py-2.5 rounded-lg
+                        font-bold text-[12px] headline hover:scale-95 active:opacity-80 transition-all duration-150
+                        cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:scale-100
+                        shrink-0"
+                    >
+                      {decryptStatus === "loading" ? (
+                        <span className="w-3.5 h-3.5 border-2 border-[#3a2900]/30 border-t-[#3a2900] rounded-full animate-spin" />
+                      ) : (
+                        <span className="material-symbols-outlined text-sm"
+                          style={{ fontVariationSettings: "'FILL' 1" }}>key</span>
+                      )}
+                      Decrypt
+                    </button>
+                  </div>
+                  {keyInvalid && decryptionError && (
+                    <p className="text-[11px] text-[#ff6d8e] font-label flex items-center gap-1.5 pt-1">
+                      <span className="material-symbols-outlined text-sm">error</span>
+                      {decryptionError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Decrypted plaintext */}
             {decryptedOk && decryptedRecord && (

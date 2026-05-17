@@ -86,19 +86,22 @@ def encrypt_payload(data: dict) -> dict:
     }
 
 
-def decrypt_payload(envelope: dict) -> dict:
+def decrypt_payload(envelope: dict, key: bytes | None = None) -> dict:
     """
     Decrypt an encrypted envelope back into the original decision record.
 
     Args:
         envelope: The encrypted envelope dict (as returned by encrypt_payload
                   or fetched from IPFS).
+        key:      Optional 32-byte AES-256 key. If omitted, falls back to the
+                  PAYLOAD_ENCRYPTION_KEY env var. Pass an explicit key when the
+                  verifier supplies it at request time (e.g. via HTTP header).
 
     Returns:
         The original plaintext decision record dict.
 
     Raises:
-        RuntimeError: If the key is missing, the version is unsupported,
+        RuntimeError: If the key is missing/invalid, the version is unsupported,
                       or the ciphertext is tampered (GCM auth tag fails).
     """
     if envelope.get("v") != 1 or envelope.get("enc") != "aes-gcm-256":
@@ -107,7 +110,13 @@ def decrypt_payload(envelope: dict) -> dict:
             f"v={envelope.get('v')} enc={envelope.get('enc')}"
         )
 
-    key = _load_key()
+    if key is None:
+        key = _load_key()
+    elif len(key) != _KEY_BYTES:
+        raise RuntimeError(
+            f"Supplied key must be {_KEY_BYTES} bytes. Got {len(key)} bytes."
+        )
+
     nonce = bytes.fromhex(envelope["nonce"])
     ciphertext = bytes.fromhex(envelope["ciphertext"])
 
@@ -118,6 +127,31 @@ def decrypt_payload(envelope: dict) -> dict:
         raise RuntimeError(f"Decryption failed — data may be tampered: {e}")
 
     return json.loads(plaintext.decode())
+
+
+def parse_hex_key(hex_key: str) -> bytes:
+    """
+    Parse a hex-encoded AES-256 key string into bytes.
+
+    Args:
+        hex_key: 64-character hex string.
+
+    Returns:
+        32-byte key.
+
+    Raises:
+        ValueError: If the input is not valid hex or not 32 bytes long.
+    """
+    try:
+        key = bytes.fromhex(hex_key.strip())
+    except ValueError as e:
+        raise ValueError(f"Auditor key is not valid hex")
+    if len(key) != _KEY_BYTES:
+        raise ValueError(
+            f"Auditor key must be {_KEY_BYTES * 2} hex chars ({_KEY_BYTES} bytes). "
+            f"Got {len(key)} bytes."
+        )
+    return key
 
 
 def generate_key() -> str:

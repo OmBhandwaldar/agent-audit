@@ -20,7 +20,7 @@ import time
 from collections import deque
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -30,7 +30,7 @@ from batcher.anchor import flush_and_anchor
 from batcher.merkle import leaf_hash as compute_leaf_hash
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
-from crypto.payload import decrypt_payload
+from crypto.payload import decrypt_payload, parse_hex_key
 from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2
 
 logging.basicConfig(level=logging.INFO)
@@ -205,17 +205,34 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 
 @app.get("/api/verify")
-async def verify(action_id: str = Query(..., description="Action ID to verify")) -> dict:
+async def verify(
+    action_id: str = Query(..., description="Action ID to verify"),
+    x_auditor_key: str | None = Header(
+        None,
+        alias="X-Auditor-Key",
+        description="Hex-encoded AES-256 auditor key. Omit to skip decryption.",
+    ),
+) -> dict:
     """
     Verify a Phase 2 audit record by action ID.
 
     Looks up the leaf in SQLite, verifies the Merkle inclusion proof against
-    the on-chain root stored in AnchorContract, and decrypts the IPFS payload.
+    the on-chain root stored in AnchorContract, fetches the encrypted IPFS
+    envelope, and — when an auditor key is supplied via the X-Auditor-Key
+    header — attempts to decrypt it.
 
-    Returns nested verification + decryption sections so the frontend can show
-    proof validity and the original plaintext record independently.
+    Decryption states returned to the client:
+      key_provided=False              → ciphertext envelope only (public view)
+      key_provided=True, key_valid=False → bad key, envelope still returned
+      key_provided=True, key_valid=True  → plaintext record returned
+
+    Merkle proof verification is always public — the auditor key is only
+    needed to read the contents.
     """
-    logger.info("Verify request for action_id: %s", action_id)
+    logger.info(
+        "Verify request for action_id: %s (key_provided=%s)",
+        action_id, bool(x_auditor_key),
+    )
 
     leaf_data = batch_store.get_leaf(action_id)
     if not leaf_data:
@@ -235,11 +252,7 @@ async def verify(action_id: str = Query(..., description="Action ID to verify"))
                 "batch_id": None,
                 "merkle_root_onchain": None,
             },
-            "decryption": {
-                "encrypted": True,
-                "decrypted": False,
-                "record": None,
-            },
+            "decryption": _empty_decryption_section(),
             "record_summary": _build_record_summary(record),
         }
 
@@ -252,18 +265,10 @@ async def verify(action_id: str = Query(..., description="Action ID to verify"))
     proof_valid = verify_proof(leaf_data["leaf_hash"], proof, onchain_root)
     logger.info("Verify result for %s: proof_valid=%s", action_id, proof_valid)
 
-    # Decrypt IPFS payload using the CID stored in the record
+    # Fetch encrypted envelope from IPFS regardless of key — the ciphertext
+    # is public and the frontend needs it to show "encrypted blob" state.
     ipfs_cid = record.get("ipfs_cid", "")
-    decrypted_record = None
-    decryption_ok = False
-
-    if ipfs_cid:
-        try:
-            envelope = await _fetch_ipfs_by_cid(ipfs_cid)
-            decrypted_record = decrypt_payload(envelope)
-            decryption_ok = True
-        except Exception as e:
-            logger.warning("IPFS decrypt failed for %s: %s", action_id, e)
+    decryption_section = await _attempt_decryption(ipfs_cid, x_auditor_key, action_id)
 
     return {
         "action_id": action_id,
@@ -275,13 +280,68 @@ async def verify(action_id: str = Query(..., description="Action ID to verify"))
             "proof_steps": len(proof),
             "merkle_root_onchain": onchain_root,
         },
-        "decryption": {
-            "encrypted": True,
-            "decrypted": decryption_ok,
-            "record": decrypted_record,
-        },
+        "decryption": decryption_section,
         "record_summary": _build_record_summary(record),
     }
+
+
+def _empty_decryption_section() -> dict:
+    """Decryption section for pending leaves — no envelope fetched yet."""
+    return {
+        "encrypted": True,
+        "key_provided": False,
+        "key_valid": None,
+        "decrypted": False,
+        "record": None,
+        "envelope": None,
+        "error": None,
+    }
+
+
+async def _attempt_decryption(ipfs_cid: str, x_auditor_key: str | None, action_id: str) -> dict:
+    """
+    Fetch the encrypted envelope from IPFS and, if a key was supplied, try to
+    decrypt it. Returns a fully-populated decryption section dict.
+
+    Never raises — all failures are surfaced via the `error` field so the
+    frontend can render the corresponding state.
+    """
+    section = _empty_decryption_section()
+
+    if not ipfs_cid:
+        section["error"] = "No IPFS CID on record"
+        return section
+
+    try:
+        envelope = await _fetch_ipfs_by_cid(ipfs_cid)
+    except Exception as e:
+        logger.warning("IPFS fetch failed for %s: %s", action_id, e)
+        section["error"] = f"IPFS fetch failed: {e}"
+        return section
+
+    section["envelope"] = envelope
+
+    if not x_auditor_key:
+        return section  # ciphertext-only response
+
+    section["key_provided"] = True
+    try:
+        key_bytes = parse_hex_key(x_auditor_key)
+    except ValueError as e:
+        section["key_valid"] = False
+        section["error"] = str(e)
+        return section
+
+    try:
+        section["record"] = decrypt_payload(envelope, key=key_bytes)
+        section["decrypted"] = True
+        section["key_valid"] = True
+    except Exception as e:
+        logger.info("Decryption with supplied key failed for %s: %s", action_id, e)
+        section["key_valid"] = False
+        section["error"] = "Decryption failed — wrong key or tampered payload"
+
+    return section
 
 
 @app.get("/api/dashboard", response_model=DashboardResponse)
