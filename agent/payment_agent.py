@@ -32,7 +32,7 @@ POLICY_LIMIT = int(os.getenv("POLICY_LIMIT", "5000"))
 # ---------------------------------------------------------------------------
 
 
-def decide_payment(amount: int, vendor_id: str) -> tuple[str, str]:
+def decide_payment(amount: int, vendor_id: str) -> tuple[str, str, list[dict]]:
     """
     Decide payment approval based on amount policy limit.
 
@@ -44,7 +44,9 @@ def decide_payment(amount: int, vendor_id: str) -> tuple[str, str]:
         vendor_id: Vendor identifier (for logging only).
 
     Returns:
-        (decision, reason) where decision is "approved" or "rejected".
+        (decision, reason, trace) where decision is "approved" or "rejected"
+        and trace is a single-step reasoning trace describing the rule-based
+        decision (keeps the contract consistent with the LLM-driven path).
     """
     if amount < POLICY_LIMIT:
         decision = "approved"
@@ -53,22 +55,35 @@ def decide_payment(amount: int, vendor_id: str) -> tuple[str, str]:
         decision = "rejected"
         reason = f"Amount {amount} exceeds policy limit {POLICY_LIMIT}"
 
+    trace = [{
+        "step": 1,
+        "tool": "fallback_amount_check",
+        "args": {"amount": amount, "policy_limit": POLICY_LIMIT},
+        "result": f"{decision}: {reason}",
+    }]
     logger.info("Fallback decision: %s — %s (vendor: %s)", decision, reason, vendor_id)
-    return decision, reason
+    return decision, reason, trace
 
 
-def decide_vendor_and_payment(prompt: str) -> tuple[str, int, str, str]:
+def decide_vendor_and_payment(prompt: str) -> tuple[str, int, str, str, list[dict]]:
     """
     Fallback for run_chat_agent. Picks VENDOR_001 at ₹4500 regardless of prompt.
 
     Returns:
-        (vendor_id, amount, decision, reason)
+        (vendor_id, amount, decision, reason, trace) where trace is a single
+        synthetic step describing the deterministic fallback choice.
     """
     vendor = VENDOR_REGISTRY[0]
     amount = vendor["price"]
     reason = f"Selected {vendor['name']} at Rs{amount} (default fallback selection)"
+    trace = [{
+        "step": 1,
+        "tool": "fallback_vendor_selection",
+        "args": {"prompt": prompt},
+        "result": f"Selected {vendor['id']} at Rs{amount} (default fallback)",
+    }]
     logger.info("Chat fallback: selected %s at %d", vendor["id"], amount)
-    return vendor["id"], amount, "approved", reason
+    return vendor["id"], amount, "approved", reason, trace
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +91,7 @@ def decide_vendor_and_payment(prompt: str) -> tuple[str, int, str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
+async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str, list[dict]]:
     """
     LangChain agent that decides payment approval using check_payment_policy tool.
 
@@ -87,7 +102,8 @@ async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
         vendor_id: Vendor identifier (for logging; vendor check is on-chain).
 
     Returns:
-        (decision, reason) where decision is "approved" or "rejected".
+        (decision, reason, trace) where decision is "approved" or "rejected"
+        and trace records the LLM tool call(s) the agent made to reach it.
     """
     try:
         from langchain_core.tools import tool
@@ -111,17 +127,28 @@ async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
         response = await llm_with_tools.ainvoke(messages)
 
         if response.tool_calls:
-            tool_result = check_payment_policy.invoke(response.tool_calls[0]["args"])
+            tc = response.tool_calls[0]
+            tool_result = check_payment_policy.invoke(tc["args"])
             logger.info("LangChain tool result for vendor %s: %s", vendor_id, tool_result)
-            if "approved" in tool_result.lower():
-                return "approved", tool_result
-            return "rejected", tool_result
+            trace = [{
+                "step": 1,
+                "tool": tc["name"],
+                "args": tc["args"],
+                "result": str(tool_result),
+            }]
+            decision = "approved" if "approved" in tool_result.lower() else "rejected"
+            return decision, tool_result, trace
 
         output = response.content or ""
         logger.info("LangChain text output for vendor %s: %s", vendor_id, output.strip())
-        if "approved" in output.lower():
-            return "approved", output.strip()
-        return "rejected", output.strip()
+        trace = [{
+            "step": 1,
+            "tool": "model_text_only",
+            "args": {"amount": amount},
+            "result": output.strip(),
+        }]
+        decision = "approved" if "approved" in output.lower() else "rejected"
+        return decision, output.strip(), trace
 
     except Exception as e:
         logger.warning("LangChain agent failed, falling back to decide_payment: %s", e)
@@ -133,7 +160,7 @@ async def run_payment_agent(amount: int, vendor_id: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
+async def run_chat_agent(prompt: str) -> tuple[str | None, int, str | None, str, list[dict]]:
     """
     LangChain agent that autonomously selects a vendor and price given a task prompt.
 
@@ -142,8 +169,11 @@ async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
       - finalize_vendor: commits to a vendor_id and amount
 
     Returns:
-        (vendor_id, amount, decision, reason)
+        (vendor_id, amount, decision, reason, trace)
         decision is always "approved" at agent level — on-chain policy decides final outcome.
+        trace is a list of {step, tool, args, result} dicts, one per tool call.
+        For off-topic prompts: returns (None, 0, None, text, trace) where trace
+        contains a single off_topic_response step.
 
     Falls back to decide_vendor_and_payment() on any failure.
 
@@ -204,6 +234,8 @@ async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
 
         # Agentic loop — keep calling until finalize_vendor is invoked
         tool_map = {t.name: t for t in tools}
+        trace: list[dict] = []
+        step_counter = 0
 
         for _ in range(6):  # max 6 iterations to prevent infinite loop
             response = await llm_with_tools.ainvoke(messages)
@@ -215,6 +247,13 @@ async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
             for tc in response.tool_calls:
                 tool_result = tool_map[tc["name"]].invoke(tc["args"])
                 messages.append(ToolMessage(content=str(tool_result), tool_call_id=tc["id"]))
+                step_counter += 1
+                trace.append({
+                    "step": step_counter,
+                    "tool": tc["name"],
+                    "args": tc["args"],
+                    "result": str(tool_result),
+                })
                 logger.info("Chat agent tool %s(%s) → %s", tc["name"], tc["args"], tool_result)
 
             if "vendor_id" in selected:
@@ -227,14 +266,20 @@ async def run_chat_agent(prompt: str) -> tuple[str, int, str, str]:
                 "I can only help with procurement and vendor-related tasks."
             )
             logger.info("Chat agent returned off-topic response: %s", last_text)
-            return None, 0, None, last_text
+            trace.append({
+                "step": step_counter + 1,
+                "tool": "off_topic_response",
+                "args": {"prompt": prompt},
+                "result": str(last_text),
+            })
+            return None, 0, None, last_text, trace
 
         vendor_id = selected["vendor_id"]
         amount = selected["amount"]
         vendor_name = selected.get("vendor_name", vendor_id)
         reason = f"Agent selected {vendor_name} ({vendor_id}) at Rs{amount} for: {prompt}"
         logger.info("Chat agent finalized: vendor=%s amount=%d", vendor_id, amount)
-        return vendor_id, amount, "approved", reason
+        return vendor_id, amount, "approved", reason, trace
 
     except Exception as e:
         logger.warning("Chat agent failed, using fallback: %s", e)

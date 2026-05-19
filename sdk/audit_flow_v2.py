@@ -177,8 +177,8 @@ async def run_audit_flow_v2(
     )
 
     # Step 1: Agent decision (amount only — vendor check is on-chain)
-    agent_decision, reason = await run_payment_agent(amount, vendor_id)
-    logger.info("Agent decision: %s", agent_decision)
+    agent_decision, reason, reasoning_trace = await run_payment_agent(amount, vendor_id)
+    logger.info("Agent decision: %s  (trace steps: %d)", agent_decision, len(reasoning_trace))
 
     # Step 2: Build record
     timestamp = int(time.time())
@@ -193,6 +193,7 @@ async def run_audit_flow_v2(
         "agent_decision": agent_decision,
         "decision": agent_decision,
         "reason": reason,
+        "reasoning_trace": reasoning_trace,
         "policy": POLICY_ID,
         "agent_id": agent_id,
         "timestamp": timestamp,
@@ -229,7 +230,7 @@ async def run_chat_flow_v2(
     logger.info("v2 chat started. Prompt: %s", prompt)
 
     # Step 1: Chat agent picks vendor + amount + decision
-    vendor_id, amount, agent_decision, reason = await run_chat_agent(prompt)
+    vendor_id, amount, agent_decision, reason, reasoning_trace = await run_chat_agent(prompt)
 
     # Off-topic: agent responded with plain text, no vendor selected
     if vendor_id is None:
@@ -237,8 +238,8 @@ async def run_chat_flow_v2(
         return {"agent_reply": reason, "off_topic": True}
 
     logger.info(
-        "Chat agent selected: vendor=%s amount=%d decision=%s",
-        vendor_id, amount, agent_decision,
+        "Chat agent selected: vendor=%s amount=%d decision=%s  (trace steps: %d)",
+        vendor_id, amount, agent_decision, len(reasoning_trace),
     )
 
     # Step 2: Build record
@@ -254,6 +255,7 @@ async def run_chat_flow_v2(
         "agent_decision": agent_decision,
         "decision": agent_decision,
         "reason": reason,
+        "reasoning_trace": reasoning_trace,
         "policy": POLICY_ID,
         "agent_id": agent_id,
         "source": "chat_agent",
