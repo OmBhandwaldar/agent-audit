@@ -444,9 +444,6 @@ function VerifyModal({ apiBase, onClose }) {
   const [verifyResult,  setVerifyResult]  = useState(null)
   const [verifyError,   setVerifyError]   = useState(null)
   const [steps,         setSteps]         = useState([])
-  const [tamperStatus,  setTamperStatus]  = useState("idle")    // "idle"|"loading"|"result"
-  const [tamperResult,  setTamperResult]  = useState(null)
-  const [tamperError,   setTamperError]   = useState(null)
 
   // Build fetch options with the auditor key header if one is provided.
   const buildFetchOpts = (keyOverride) => {
@@ -458,8 +455,6 @@ function VerifyModal({ apiBase, onClose }) {
     if (!actionIdInput.trim()) { setVerifyError("Please enter an action ID"); return }
     setVerifyStatus("loading")
     setVerifyError(null)
-    setTamperStatus("idle")
-    setTamperResult(null)
 
     // Initialise steps — first one starts loading immediately
     setSteps(VERIFY_STEPS.map((label, i) => ({ label, status: i === 0 ? "loading" : "pending" })))
@@ -532,38 +527,6 @@ function VerifyModal({ apiBase, onClose }) {
     }
   }
 
-  const handleSimulateTamper = async () => {
-    setTamperStatus("loading")
-    setTamperError(null)
-    try {
-      const res = await fetch(
-        `${apiBase}/api/tamper-demo?action_id=${encodeURIComponent(verifyResult.action_id)}`
-      )
-      if (!res.ok) {
-        const d = await res.json()
-        throw new Error(d.detail || "Tamper demo failed")
-      }
-      const data = await res.json()
-      setTamperResult(data)
-      setTamperStatus("result")
-    } catch (err) {
-      setTamperError(err.message)
-      setTamperStatus("idle")
-    }
-  }
-
-  const handleReset = () => {
-    setVerifyStatus("input")
-    setVerifyResult(null)
-    setVerifyError(null)
-    setActionIdInput("")
-    setAuditorKey("")
-    setShowKey(false)
-    setDecryptStatus("idle")
-    setTamperStatus("idle")
-    setTamperResult(null)
-    setTamperError(null)
-  }
 
   // New nested response shape from Phase 2 /api/verify
   const anchorStatus      = verifyResult?.anchor_status || "unknown"
@@ -585,9 +548,10 @@ function VerifyModal({ apiBase, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      {/* Modal card */}
-      <div className="bg-[#0e0e0e] border border-[#2a2a2a] rounded-2xl w-full max-w-lg
-        shadow-[0_0_80px_-20px_rgba(255,79,0,0.25)] flex flex-col max-h-[90vh]">
+      {/* Modal card — widens when the decrypted side-by-side view is active */}
+      <div className={`bg-[#0e0e0e] border border-[#2a2a2a] rounded-2xl w-full transition-[max-width] duration-200
+        shadow-[0_0_80px_-20px_rgba(255,79,0,0.25)] flex flex-col max-h-[90vh]
+        ${decryptedOk ? "max-w-5xl" : "max-w-lg"}`}>
 
         {/* Header */}
         <div className="relative flex items-center justify-center px-5 py-4 border-b border-[#1a1919] shrink-0">
@@ -601,16 +565,17 @@ function VerifyModal({ apiBase, onClose }) {
             className="absolute right-4 w-7 h-7 flex items-center justify-center rounded-lg
               text-[#484847] hover:text-white hover:bg-[#1a1919] transition-all duration-150 cursor-pointer"
           >
-            <span className="material-symbols-outlined text-base">close</span>
+            <span className="material-symbols-outlined text-base text-white">close</span>
           </button>
         </div>
 
-        {/* Scrollable body */}
-        <div className="p-6 overflow-y-auto flex-1">
+        {/* Body — fills remaining card height. Itself does not scroll; in the
+            decrypted side-by-side view each column scrolls independently. */}
+        <div className="p-6 flex-1 min-h-0 flex flex-col overflow-hidden">
 
         {/* ── Input ── */}
         {verifyStatus === "input" && (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 overflow-y-auto">
             <div className="flex flex-col gap-2">
               <label className="text-[10px] font-label font-semibold text-[#484847] uppercase tracking-wider">
                 Action ID
@@ -687,7 +652,7 @@ function VerifyModal({ apiBase, onClose }) {
 
         {/* ── Steps ── */}
         {verifyStatus === "loading" && (
-          <div className="flex flex-col gap-5 py-4">
+          <div className="flex flex-col gap-5 py-4 overflow-y-auto">
             {steps.map((step, i) => (
               <div key={i} className="flex items-center gap-4">
                 {step.status === "done" ? (
@@ -713,7 +678,15 @@ function VerifyModal({ apiBase, onClose }) {
 
         {/* ── Result ── */}
         {verifyStatus === "result" && verifyResult && (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-5 flex-1 min-h-0">
+
+            {/* When decrypted: side-by-side layout (verification on left, reasoning
+                trace on right) — each column scrolls independently so long content
+                in one side does not push the other out of view. */}
+            <div className={decryptedOk
+              ? "grid grid-cols-1 lg:grid-cols-2 gap-5 flex-1 min-h-0"
+              : "flex flex-col gap-5 flex-1 min-h-0 overflow-y-auto"}>
+            <div className="flex flex-col gap-5 lg:overflow-y-auto lg:min-h-0 lg:pr-2">
 
             {/* Anchor + proof banner */}
             <div className={`flex items-center gap-3 px-5 py-4 rounded-xl border ${
@@ -950,118 +923,80 @@ function VerifyModal({ apiBase, onClose }) {
               </div>
             )}
 
-            {/* Tamper demo — only when proof valid */}
-            {verified && (
-              <div className="bg-[#131313] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-4">
+            </div>{/* ── end LEFT column ── */}
+
+            {decryptedOk && (
+            <div className="flex flex-col gap-5 lg:overflow-y-auto lg:min-h-0 lg:pr-2">
+
+            {/* Reasoning trace — tool calls captured during the agent's decision */}
+            {decryptedOk && Array.isArray(decryptedRecord?.reasoning_trace) && decryptedRecord.reasoning_trace.length > 0 && (
+              <div className="bg-[#131313] border border-[#26fedc]/20 rounded-xl p-5 flex flex-col gap-4">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-sm text-[#febc2e]">science</span>
-                  <span className="text-[10px] font-label font-semibold text-[#febc2e] uppercase tracking-wider">
-                    Tamper Detection Demo
+                  <span className="material-symbols-outlined text-sm text-[#26fedc]"
+                    style={{ fontVariationSettings: "'FILL' 1" }}>account_tree</span>
+                  <span className="text-[10px] font-label font-bold text-[#26fedc] uppercase tracking-wider">
+                    Agent Reasoning Trace
                   </span>
                 </div>
+
                 <p className="text-[12px] text-[#767575] font-label leading-relaxed">
-                  Tampering changes the leaf hash → the same Merkle proof no longer validates against
-                  the on-chain root.
+                Steps the agent followed to reach this decision.
                 </p>
 
-                {tamperStatus === "idle" && (
-                  <button
-                    onClick={handleSimulateTamper}
-                    className="flex items-center justify-center gap-2 border border-[#febc2e]/30 text-[#febc2e]
-                      bg-[#febc2e]/5 rounded-xl py-3 font-semibold text-sm headline
-                      hover:bg-[#febc2e]/10 hover:border-[#febc2e]/50 transition-all duration-150 cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-sm">security</span>
-                    Simulate Tampering
-                  </button>
-                )}
-
-                {tamperStatus === "loading" && (
-                  <div className="flex items-center gap-3 text-[#767575] text-sm font-label py-1">
-                    <span className="w-4 h-4 border-2 border-[#2a2a2a] border-t-[#febc2e] rounded-full animate-spin" />
-                    Recomputing leaf hash and re-verifying proof…
-                  </div>
-                )}
-
-                {tamperError && (
-                  <p className="text-sm text-[#ff6d8e] font-label">{tamperError}</p>
-                )}
-
-                {tamperStatus === "result" && tamperResult && (
-                  <div className="flex flex-col gap-3">
-                    <p className="text-[12px] text-[#adaaaa] font-label leading-relaxed">
-                      Field modified:{" "}
-                      <span className="font-mono text-[11px]">{tamperResult.field_tampered}</span>
-                      {" "}changed from{" "}
-                      <span className="font-mono text-[11px] text-[#26fedc]">
-                        ₹{tamperResult.original_value?.toLocaleString?.() ?? tamperResult.original_value}
-                      </span>
-                      {" "}to{" "}
-                      <span className="font-mono text-[11px] text-[#ff6d8e]">
-                        ₹{tamperResult.tampered_value}
-                      </span>
-                    </p>
-
-                    {/* Proof status cards */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-[#26fedc]/8 border border-[#26fedc]/25 rounded-lg px-3 py-2.5
-                        flex items-center gap-2">
-                        <span className="material-symbols-outlined text-sm text-[#26fedc]"
-                          style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-label uppercase tracking-wider text-[#767575]">Original leaf</span>
-                          <span className="text-[11px] font-label font-semibold text-[#26fedc]">
-                            Proof valid
-                          </span>
-                        </div>
+                <div className="flex flex-col gap-2.5">
+                  {decryptedRecord.reasoning_trace.map((step, i) => (
+                    <div key={i} className="bg-[#0a0a0a] border border-[#1a1919] rounded-lg p-3 flex flex-col gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full
+                          bg-[#26fedc]/10 border border-[#26fedc]/30 text-[10px] font-bold text-[#26fedc]">
+                          {step.step ?? i + 1}
+                        </span>
+                        <span className="inline-flex items-center gap-1 bg-[#ff4f00]/8 border border-[#ff4f00]/25
+                          rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold text-[#ff4f00]">
+                          <span className="material-symbols-outlined text-[11px]">build</span>
+                          {step.tool}
+                        </span>
                       </div>
-                      <div className="bg-[#f61468]/8 border border-[#f61468]/25 rounded-lg px-3 py-2.5
-                        flex items-center gap-2">
-                        <span className="material-symbols-outlined text-sm text-[#ff6d8e]"
-                          style={{ fontVariationSettings: "'FILL' 1" }}>cancel</span>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] font-label uppercase tracking-wider text-[#767575]">Tampered leaf</span>
-                          <span className="text-[11px] font-label font-semibold text-[#ff6d8e]">
-                            Proof invalid
-                          </span>
+                      {step.args && Object.keys(step.args).length > 0 && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] font-label uppercase tracking-wider text-[#484847]">Args</span>
+                          <pre className="bg-[#131313] border border-[#1a1919] rounded p-2 text-[10px]
+                            font-mono text-[#adaaaa] overflow-x-auto leading-relaxed">
+{JSON.stringify(step.args, null, 2)}
+                          </pre>
                         </div>
+                      )}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-label uppercase tracking-wider text-[#484847]">Result</span>
+                        <pre className="bg-[#131313] border border-[#1a1919] rounded p-2 text-[10px]
+                          font-mono text-[#adaaaa] overflow-x-auto whitespace-pre-wrap leading-relaxed">
+{typeof step.result === "string" ? step.result : JSON.stringify(step.result, null, 2)}
+                        </pre>
                       </div>
                     </div>
+                  ))}
+                </div>
 
-                    <div className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-2 text-[11px]
-                      bg-[#0e0e0e] rounded-lg p-4 border border-[#2a2a2a]">
-                      <span className="text-[#484847] font-label">Merkle root</span>
-                      <span className="font-mono text-[#adaaaa] break-all" title={tamperResult.merkle_root_onchain}>
-                        {truncate(tamperResult.merkle_root_onchain, 26)}
-                      </span>
-                      <span className="text-[#484847] font-label">Original hash</span>
-                      <span className="font-mono text-[#26fedc] break-all" title={tamperResult.leaf_hash_original}>
-                        {truncate(tamperResult.leaf_hash_original, 26)} ✓
-                      </span>
-                      <span className="text-[#484847] font-label">Tampered hash</span>
-                      <span className="font-mono text-[#ff6d8e] break-all" title={tamperResult.leaf_hash_tampered}>
-                        {truncate(tamperResult.leaf_hash_tampered, 26)} ✗
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#484847] font-label leading-relaxed pt-1">
-                      The on-chain Merkle root is immutable. Any modification to the record produces
-                      a different leaf hash whose proof fails against that root — cryptographic tamper detection.
-                    </p>
-                  </div>
-                )}
+                <p className="text-[11px] text-[#484847] font-label leading-relaxed pt-1 border-t border-[#1a1919]">
+                  Trace is part of the encrypted record. Tampering with any step changes the leaf hash → Merkle proof
+                  breaks against the on-chain root.
+                </p>
               </div>
             )}
 
-            {/* Reset */}
-            <button
-              onClick={handleReset}
-              className="flex items-center justify-center gap-2 border border-[#2a2a2a] text-[#767575]
-                rounded-xl py-3 text-sm font-label hover:text-white hover:border-[#484847]
-                transition-all duration-150 cursor-pointer w-full"
-            >
-              <span className="material-symbols-outlined text-sm">restart_alt</span>
-              Verify Another
-            </button>
+            </div>
+            )}{/* ── end RIGHT column (rendered only when decryptedOk) ── */}
+
+            </div>{/* ── end side-by-side grid ── */}
+
+            {/* Tamper-evidence is structurally guaranteed by the Merkle root + IPFS CID
+                being on-chain. Modifying any record changes the leaf hash, which breaks
+                the inclusion proof against the immutable on-chain root — no extra UI
+                demonstration needed. The /api/tamper-demo endpoint remains available
+                for debugging. */}
+
+            {/* "Verify Another" button removed — close via the X button in the header
+                and reopen the modal to verify a new action ID. */}
 
           </div>
         )}
