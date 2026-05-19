@@ -39,8 +39,8 @@ function HeroSection({ onEnterApp }) {
         </h1>
 
         <p className="max-w-2xl mx-auto text-white text-base md:text-lg mb-12 leading-relaxed font-body">
-          AgentAudit provides tamper-proof observability for AIagents.
-          Every decision is anchored on-chain via Algorand, independently
+          AgentAudit provides tamper-proof observability for AI agents.
+          Every decision and its entire trace is anchored on-chain via Algorand, independently
           verifiable, compliance-ready, and immutable by design.
         </p>
 
@@ -99,7 +99,7 @@ const FEATURE_CARDS = [
   {
     icon: "smart_toy",
     title: "Agent Memory",
-    description: "LangChain-powered agents evaluate every transaction in real-time. Each decision is immutably logged before any action executes.",
+    description: "LangChain-powered agents evaluate every transaction in real-time. Every tool call the agent makes — what it queried, what it returned — is captured as a structured reasoning trace inside the encrypted payload.",
   },
   {
     icon: "folder_open",
