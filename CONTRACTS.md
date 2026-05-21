@@ -1,4 +1,4 @@
-# AgentAudit — Smart Contracts
+# AgentAudit - Smart Contracts
 
 Two **Algorand Python (Algokit ARC4)** contracts on **Algorand Testnet**.
 
@@ -13,7 +13,7 @@ For system-level context, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## PolicyContract — `contracts/policy_contract.py`
+## PolicyContract - `contracts/policy_contract.py`
 
 Stateless enforcer. Runs two policy checks per action, mints **1 AACR (AgentAudit Compliance Receipt)** to the caller if both pass. Does **not** store audit records.
 
@@ -25,7 +25,7 @@ Stateless enforcer. Runs two policy checks per action, mints **1 AACR (AgentAudi
 | GlobalState `UInt64` | `policy_limit` | Max amount that passes (exclusive) |
 | BoxMap `Bytes → arc4.Bool` | `vendors` (`b"v:"`) | Whitelist. Key = `sha256(vendor_id.bytes)`. |
 
-Box keys are always `sha256(string.bytes)` — fixed 32 bytes.
+Box keys are always `sha256(string.bytes)` - fixed 32 bytes.
 
 ### Methods
 
@@ -35,7 +35,7 @@ Box keys are always `sha256(string.bytes)` — fixed 32 bytes.
 | `opt_in_asa()` | creator | Opt contract into AACR ASA (inner asset transfer, amount 0) |
 | `add_vendor(vendor_id)` | creator | Add `sha256(vendor_id) → True` to whitelist |
 | `remove_vendor(vendor_id)` | creator | Remove from whitelist |
-| `check_and_mint(action_id, ipfs_hash, amount, vendor_id, agent_id, timestamp)` | public | **Main method** — run both checks, mint AACR if both pass, return result string |
+| `check_and_mint(action_id, ipfs_hash, amount, vendor_id, agent_id, timestamp)` | public | **Main method** - run both checks, mint AACR if both pass, return result string |
 
 ### `check_and_mint` logic
 
@@ -63,7 +63,7 @@ Sequence: create ASA → deploy contract → `opt_in_asa()` → send supply to c
 
 ---
 
-## AnchorContract — `contracts/anchor_contract.py`
+## AnchorContract - `contracts/anchor_contract.py`
 
 Tiny single-purpose contract. Stores Merkle roots of batched decisions. One box per batch anchors N records in one transaction.
 

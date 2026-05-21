@@ -1,4 +1,4 @@
-# AgentAudit — Architecture
+# AgentAudit Architecture
 
 How a single agent decision becomes a tamper-evident, independently verifiable on-chain record.
 
@@ -37,27 +37,27 @@ How a single agent decision becomes a tamper-evident, independently verifiable o
 
 ## Five Layers
 
-### 1. Agent Layer — `agent/payment_agent.py`
+### 1. Agent Layer - `agent/payment_agent.py`
 LangChain + Groq. Two modes:
 - **Direct** (`run_payment_agent`) — one tool, evaluates amount against policy limit.
 - **Chat** (`run_chat_agent`) — agentic loop, picks vendor + amount autonomously.
 
 Both return a **reasoning trace**: `[{step, tool, args, result}]` capturing every tool call. The trace lives inside the encrypted record, so tampering with it breaks the Merkle proof.
 
-### 2. Crypto Layer — `crypto/payload.py`
+### 2. Crypto Layer - `crypto/payload.py`
 AES-GCM-256. One symmetric key (`PAYLOAD_ENCRYPTION_KEY` in `.env`), fresh 96-bit nonce per encryption, 128-bit auth tag. Auditors decrypt by passing the key in the `X-Auditor-Key` HTTP header — used once and discarded.
 
-### 3. Storage Layer — `ipfs/uploader.py`
+### 3. Storage Layer - `ipfs/uploader.py`
 Encrypted envelopes → Pinata IPFS → CID. Anyone can fetch the blob; without the key it's opaque. This is what lets us anchor a public hash without leaking record contents.
 
-### 4. Smart Contract Layer — `contracts/`
+### 4. Smart Contract Layer - `contracts/`
 Two contracts (see [CONTRACTS.md](CONTRACTS.md)):
 - **PolicyContract** — per-action policy check (amount + vendor), mints 1 AACR receipt if both pass. No on-chain record storage.
 - **AnchorContract** — stores Merkle roots of batched records. One transaction anchors many decisions.
 
 Split rationale: per-action policy *must* be on-chain (independence from the agent). Per-record on-chain storage *doesn't scale*. Each contract does one job.
 
-### 5. Batcher Layer — `batcher/`
+### 5. Batcher Layer - `batcher/`
 - `store.py` — SQLite pending-leaf store.
 - `merkle.py` — SHA256 Merkle tree. Canonical leaf = `sha256(json.dumps(record, sort_keys=True))`. Sorted sibling pairs → order-independent proofs.
 - `anchor.py` — flushes the store, anchors the root, persists proofs.
@@ -97,10 +97,10 @@ Lookup record + proof → AnchorContract.get_root(batch_id)
 
 | Boundary | Trusted? | Why |
 |---|---|---|
-| LangChain agent | No | Observed, not trusted — its tool calls are captured and anchored. |
+| LangChain agent | No | Observed, not trusted - its tool calls are captured and anchored. |
 | Backend (FastAPI) | Only by the deployer | Anyone can re-verify records independently. |
 | IPFS / Pinata | Not for integrity | Anchored `sha256(cid)` detects any IPFS alteration. |
-| Algorand contracts | **Yes — root of trust** | On-chain state is the immutable reference. |
+| Algorand contracts | **Yes - root of trust** | On-chain state is the immutable reference. |
 | Auditor key holder | Trusted for plaintext reads only | Cannot alter records or anchored state. |
 
 ---
@@ -126,24 +126,24 @@ Lookup record + proof → AnchorContract.get_root(batch_id)
 | Symmetric encryption | One key per org is operationally trivial. Per-record keys would explode key management. |
 | Merkle batching | Same model as Certificate Transparency, Bitcoin SPV, every L2 rollup. Minimal on-chain state, well-understood proofs. |
 | SQLite batch store | Local, atomic, single-file. No infra to manage. Production scale would use Postgres. |
-| Trace inside encrypted payload | Existing Merkle proof covers the trace for free — no second tamper-evidence story needed. |
+| Trace inside encrypted payload | Existing Merkle proof covers the trace for free - no second tamper-evidence story needed. |
 
 ---
 
 ## File Map
 
 ```
-agent/payment_agent.py            ── Agent + reasoning trace capture
-crypto/payload.py                 ── AES-GCM-256 encrypt/decrypt
-ipfs/uploader.py                  ── Pinata IPFS upload
-contracts/policy_contract.py      ── PolicyContract (per-action)
-contracts/anchor_contract.py      ── AnchorContract (batch anchor)
-batcher/merkle.py                 ── Merkle math
-batcher/store.py                  ── SQLite leaf store
-batcher/anchor.py                 ── flush_and_anchor
-algorand/contract_client_v2.py    ── Contract clients
-sdk/audit_flow_v2.py              ── Pipeline orchestrator
-api/main.py                       ── HTTP surface (FastAPI)
+agent/payment_agent.py            - Agent + reasoning trace capture
+crypto/payload.py                 - AES-GCM-256 encrypt/decrypt
+ipfs/uploader.py                  - Pinata IPFS upload
+contracts/policy_contract.py      - PolicyContract (per-action)
+contracts/anchor_contract.py      - AnchorContract (batch anchor)
+batcher/merkle.py                 - Merkle math
+batcher/store.py                  - SQLite leaf store
+batcher/anchor.py                 - flush_and_anchor
+algorand/contract_client_v2.py    - Contract clients
+sdk/audit_flow_v2.py              - Pipeline orchestrator
+api/main.py                       - HTTP surface (FastAPI)
 ```
 
 For contract-level reference (state, methods, ASA setup), see [CONTRACTS.md](CONTRACTS.md).

@@ -4,9 +4,12 @@ Verifiable compliance infrastructure for autonomous AI agents.
 
 **Live Demo:** https://agent-audit-nu.vercel.app/
 
-**Demo Video:** https://youtu.be/XJGd1iV9V5M
+**Demo Video:** https://youtu.be/lz71ab2ZaP0
 
-**Deployed Smart contract App ID:** 758124440
+**Deployed Smart Contracts (Algorand Testnet):**
+- PolicyContract App ID: `762056214`
+- AnchorContract App ID: `762026494`
+- AACR Compliance ASA ID: `757894056`
 
 ---
 
