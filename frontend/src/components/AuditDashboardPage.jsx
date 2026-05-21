@@ -12,6 +12,7 @@ import NavBar from "./NavBar"
 
 const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs"
 const TX_EXPLORER  = "https://testnet.explorer.perawallet.app/tx"
+const DEMO_AUDITOR_KEY = import.meta.env.VITE_DEMO_AUDITOR_KEY || ""
 
 /* ─── Merkle batch widget ─────────────────────────────────────────────────── */
 
@@ -439,6 +440,19 @@ function VerifyModal({ apiBase, onClose }) {
   const [actionIdInput, setActionIdInput] = useState("")
   const [auditorKey,    setAuditorKey]    = useState("")
   const [showKey,       setShowKey]       = useState(false)
+  const [keyCopied,     setKeyCopied]     = useState(false)
+
+  const handleCopyDemoKey = async () => {
+    if (!DEMO_AUDITOR_KEY) return
+    try {
+      await navigator.clipboard.writeText(DEMO_AUDITOR_KEY)
+      setKeyCopied(true)
+      setTimeout(() => setKeyCopied(false), 1500)
+    } catch {
+      // clipboard API can fail in some browsers — fall back to filling the input
+      setAuditorKey(DEMO_AUDITOR_KEY)
+    }
+  }
   const [decryptStatus, setDecryptStatus] = useState("idle")    // "idle"|"loading"
   const [verifyStatus,  setVerifyStatus]  = useState("input")   // "input"|"loading"|"result"
   const [verifyResult,  setVerifyResult]  = useState(null)
@@ -613,17 +627,33 @@ function VerifyModal({ apiBase, onClose }) {
                 <label className="text-[10px] font-label font-semibold text-[#484847] uppercase tracking-wider">
                   Auditor Key <span className="text-[#484847] normal-case font-normal">— optional</span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setShowKey(s => !s)}
-                  className="text-[10px] font-label text-[#484847] hover:text-[#adaaaa]
-                    transition-colors cursor-pointer flex items-center gap-1"
-                >
-                  <span className="material-symbols-outlined text-[12px]">
-                    {showKey ? "visibility_off" : "visibility"}
-                  </span>
-                  {showKey ? "Hide" : "Show"}
-                </button>
+                <div className="flex items-center gap-3">
+                  {DEMO_AUDITOR_KEY && (
+                    <button
+                      type="button"
+                      onClick={handleCopyDemoKey}
+                      className="text-[10px] font-label text-[#ff4f00] hover:text-[#ff7a3d]
+                        transition-colors cursor-pointer flex items-center gap-1"
+                      title="Copy the demo auditor key to clipboard"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">
+                        {keyCopied ? "check" : "content_copy"}
+                      </span>
+                      {keyCopied ? "Copied!" : "Copy Auditor Key"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(s => !s)}
+                    className="text-[10px] font-label text-[#484847] hover:text-[#adaaaa]
+                      transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[12px]">
+                      {showKey ? "visibility_off" : "visibility"}
+                    </span>
+                    {showKey ? "Hide" : "Show"}
+                  </button>
+                </div>
               </div>
               <input
                 type={showKey ? "text" : "password"}
@@ -638,6 +668,10 @@ function VerifyModal({ apiBase, onClose }) {
               <p className="text-[10px] font-label text-[#484847] leading-relaxed">
                 The Merkle proof is verified publicly. The auditor key only unlocks
                 the IPFS payload contents.
+              </p>
+              <p className="text-[10px] font-label text-[#febc2e]/80 leading-relaxed">
+                In production this auditor's key is held only by the company, regulator, or auditor —
+                never made public. Copy it to use. Shown here for demo purposes so judges can decrypt the record.
               </p>
             </div>
 
@@ -856,17 +890,33 @@ function VerifyModal({ apiBase, onClose }) {
                     <label className="text-[10px] font-label font-semibold text-[#adaaaa] uppercase tracking-wider">
                       Paste auditor key to decrypt
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowKey(s => !s)}
-                      className="text-[10px] font-label text-[#484847] hover:text-[#adaaaa]
-                        transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <span className="material-symbols-outlined text-[12px]">
-                        {showKey ? "visibility_off" : "visibility"}
-                      </span>
-                      {showKey ? "Hide" : "Show"}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {DEMO_AUDITOR_KEY && (
+                        <button
+                          type="button"
+                          onClick={handleCopyDemoKey}
+                          className="text-[10px] font-label text-[#febc2e] hover:text-[#ffd166]
+                            transition-colors cursor-pointer flex items-center gap-1"
+                          title="Copy the demo auditor key to clipboard"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">
+                            {keyCopied ? "check" : "content_copy"}
+                          </span>
+                          {keyCopied ? "Copied!" : "Copy Auditor Key"}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowKey(s => !s)}
+                        className="text-[10px] font-label text-[#484847] hover:text-[#adaaaa]
+                          transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">
+                          {showKey ? "visibility_off" : "visibility"}
+                        </span>
+                        {showKey ? "Hide" : "Show"}
+                      </button>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <input
@@ -903,6 +953,10 @@ function VerifyModal({ apiBase, onClose }) {
                       {decryptionError}
                     </p>
                   )}
+                  <p className="text-[10px] font-label text-[#febc2e]/80 leading-relaxed pt-1">
+                    In production this auditor's key is held only by the company, regulator, or auditor —
+                    never made public. Copy it to use. Shown here for demo purposes so judges can decrypt the record.
+                  </p>
                 </div>
               </div>
             )}
