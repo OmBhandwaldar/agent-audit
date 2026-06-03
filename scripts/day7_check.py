@@ -6,7 +6,6 @@ Exercises every endpoint introduced or modified in Phase 2:
   - GET /api/batch/status
   - POST /api/batch/submit (flush + Merkle root + anchor)
   - GET /api/verify (Merkle proof verify + decryption)
-  - GET /api/tamper-demo (Merkle proof breaking)
   - GET /api/dashboard (with batcher state)
   - GET /api/verify (pending leaf path)
   - 404 paths
@@ -118,13 +117,6 @@ def main():
         failures += 1
 
     # ----------------------------------------------------------------
-    header("4. /api/tamper-demo on PENDING leaf -> 400")
-    resp = client.get(f"/api/tamper-demo?action_id={action_ids[0]}")
-    if not check("returns 400 for not-yet-anchored leaf", resp.status_code == 400,
-                 f"got {resp.status_code}"):
-        failures += 1
-
-    # ----------------------------------------------------------------
     header("5. /api/batch/status pre-flush")
     r = client.get("/api/batch/status").json()
     if not check("pending_count=3", r["pending_count"] == 3):
@@ -197,22 +189,6 @@ def main():
             failures += 1
 
     # ----------------------------------------------------------------
-    header("10. /api/tamper-demo  (real Merkle proof break)")
-    r = client.get(f"/api/tamper-demo?action_id={action_ids[0]}").json()
-    if not check("proof_original_valid=True", r["proof_original_valid"] is True):
-        failures += 1
-    if not check("proof_tampered_valid=False", r["proof_tampered_valid"] is False):
-        failures += 1
-    if not check("tamper_detected=True", r["tamper_detected"] is True):
-        failures += 1
-    if not check("leaf_hash_original != leaf_hash_tampered",
-                 r["leaf_hash_original"] != r["leaf_hash_tampered"]):
-        failures += 1
-    if not check("merkle_root_onchain has 64 hex chars",
-                 len(r["merkle_root_onchain"]) == 64):
-        failures += 1
-
-    # ----------------------------------------------------------------
     header("11. /api/dashboard post-flush")
     r = client.get("/api/dashboard").json()
     if not check("pending_leaves_count=0", r["pending_leaves_count"] == 0):
@@ -231,9 +207,6 @@ def main():
     header("12. 404 / 502 / negative paths")
     resp = client.get("/api/verify?action_id=DOES_NOT_EXIST")
     if not check("/api/verify  404 for unknown id", resp.status_code == 404):
-        failures += 1
-    resp = client.get("/api/tamper-demo?action_id=DOES_NOT_EXIST")
-    if not check("/api/tamper-demo  404 for unknown id", resp.status_code == 404):
         failures += 1
     resp = client.get("/api/batch/DOES_NOT_EXIST")
     if not check("/api/batch/{id}  404 for unknown batch", resp.status_code == 404):

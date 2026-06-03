@@ -7,7 +7,6 @@ Endpoints:
   GET  /api/verify         — verify audit record: Merkle proof + IPFS decryption
   GET  /api/dashboard      — aggregate stats + recent audit history + batcher state
   GET  /api/export/csv     — download audit history as CSV
-  GET  /api/tamper-demo    — simulate tampering to prove Merkle proof detection
 
 Run with: uvicorn api.main:app --reload --port 8000
 """
@@ -27,7 +26,6 @@ from pydantic import BaseModel, Field
 
 from algorand.contract_client_v2 import get_anchor_root
 from batcher.anchor import flush_and_anchor
-from batcher.merkle import leaf_hash as compute_leaf_hash
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
 from crypto.payload import decrypt_payload, parse_hex_key
@@ -412,75 +410,6 @@ async def export_csv():
     )
 
 
-@app.get("/api/tamper-demo")
-async def tamper_demo(action_id: str = Query(..., description="Action ID to simulate tampering on")) -> dict:
-    """
-    Simulate tampering with an audit record to demonstrate Merkle proof detection.
-
-    Fetches the real leaf from SQLite, verifies its Merkle proof against the
-    on-chain root (should pass), then recomputes the leaf hash with a tampered
-    amount field and verifies again (should fail) — proving the audit trail is
-    cryptographically tamper-proof without needing to compare hashes manually.
-    """
-    logger.info("Tamper demo request for action_id: %s", action_id)
-
-    leaf_data = batch_store.get_leaf(action_id)
-    if not leaf_data:
-        raise HTTPException(status_code=404, detail=f"No record found for action_id: {action_id}")
-
-    batch_id = leaf_data.get("batch_id")
-    proof = leaf_data.get("proof")
-    record = leaf_data["record"]
-
-    if not batch_id or proof is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Record is not yet anchored. Run POST /api/batch/submit first.",
-        )
-
-    # Fetch on-chain root
-    try:
-        onchain_root = await get_anchor_root(batch_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not fetch on-chain root: {e}")
-
-    # Verify original leaf — must pass
-    original_leaf = leaf_data["leaf_hash"]
-    proof_original_valid = verify_proof(original_leaf, proof, onchain_root)
-
-    # Tamper: change amount to 1, recompute leaf hash, verify with same proof — must fail
-    tampered_record = dict(record)
-    original_amount = tampered_record.get("amount", 0)
-    tampered_record["amount"] = 1
-    tampered_leaf = compute_leaf_hash(tampered_record)
-    proof_tampered_valid = verify_proof(tampered_leaf, proof, onchain_root)
-
-    logger.info(
-        "Tamper demo for %s: proof_original=%s proof_tampered=%s",
-        action_id, proof_original_valid, proof_tampered_valid,
-    )
-
-    return {
-        "action_id": action_id,
-        "explanation": (
-            "Changing any field in the audit record produces a different leaf hash. "
-            "The original Merkle proof does NOT validate against the on-chain root "
-            "for the tampered hash — making tampering cryptographically detectable."
-        ),
-        "field_tampered": "amount",
-        "original_value": original_amount,
-        "tampered_value": 1,
-        "leaf_hash_original": original_leaf,
-        "leaf_hash_tampered": tampered_leaf,
-        "merkle_root_onchain": onchain_root,
-        "batch_id": batch_id,
-        "proof_steps": len(proof),
-        "proof_original_valid": proof_original_valid,
-        "proof_tampered_valid": proof_tampered_valid,
-        "tamper_detected": not proof_tampered_valid,
-    }
-
-
 @app.post("/api/batch/submit")
 async def submit_batch() -> dict:
     """
@@ -533,69 +462,6 @@ async def get_batch(batch_id: str) -> dict:
     return batch
 
 
-@app.get("/api/verify/v2")
-async def verify_v2(action_id: str = Query(..., description="Action ID to verify")) -> dict:
-    """
-    Verify a Phase 2 audit record using Merkle proof.
-
-    Looks up the leaf in SQLite, fetches the on-chain Merkle root from
-    AnchorContract, verifies the proof, and decrypts the IPFS payload.
-
-    Returns verification status, proof validity, and decrypted record.
-    """
-    logger.info("Verify v2 request for action_id: %s", action_id)
-
-    leaf_data = batch_store.get_leaf(action_id)
-    if not leaf_data:
-        raise HTTPException(status_code=404, detail=f"No leaf found for action_id: {action_id}")
-
-    batch_id = leaf_data.get("batch_id")
-    proof = leaf_data.get("proof")
-
-    # Not yet anchored
-    if not batch_id or proof is None:
-        return {
-            "action_id": action_id,
-            "anchor_status": "pending",
-            "merkle_proof_valid": None,
-            "record": leaf_data["record"],
-            "leaf_hash": leaf_data["leaf_hash"],
-        }
-
-    # Fetch on-chain root and verify proof
-    try:
-        onchain_root = await get_anchor_root(batch_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not fetch on-chain root: {e}")
-
-    proof_valid = verify_proof(leaf_data["leaf_hash"], proof, onchain_root)
-
-    # Decrypt IPFS payload
-    record = leaf_data["record"]
-    ipfs_cid = record.get("ipfs_cid", "")
-    decrypted_record: dict | None = None
-
-    if ipfs_cid:
-        try:
-            from crypto.payload import decrypt_payload
-            _, envelope = await _fetch_ipfs_data(action_id)
-            decrypted_record = decrypt_payload(envelope)
-        except Exception as e:
-            logger.warning("IPFS decrypt failed for %s: %s", action_id, e)
-
-    return {
-        "action_id": action_id,
-        "anchor_status": "anchored",
-        "batch_id": batch_id,
-        "merkle_proof_valid": proof_valid,
-        "onchain_root": onchain_root,
-        "leaf_hash": leaf_data["leaf_hash"],
-        "proof_steps": len(proof),
-        "record": record,
-        "decrypted_record": decrypted_record,
-    }
-
-
 @app.get("/health")
 async def health() -> dict:
     """Health check endpoint."""
@@ -638,49 +504,3 @@ async def _fetch_ipfs_by_cid(cid: str) -> dict:
         resp = await client.get(f"https://gateway.pinata.cloud/ipfs/{cid}")
         resp.raise_for_status()
         return resp.json()
-
-
-async def _fetch_ipfs_data(action_id: str) -> tuple[str, dict]:
-    """
-    Fetch the IPFS CID and JSON content for a given action_id.
-
-    Uses the Pinata list API to look up the CID by metadata name (action_id
-    is stored as pinataMetadata.name during upload), then fetches the content.
-
-    Args:
-        action_id: The action ID to look up in Pinata.
-
-    Returns:
-        Tuple of (cid string, ipfs_data dict).
-
-    Raises:
-        RuntimeError: If CID cannot be found or content fetch fails.
-    """
-    pinata_jwt = os.getenv("PINATA_JWT", "")
-    if not pinata_jwt:
-        raise RuntimeError("PINATA_JWT not set in .env")
-
-    headers = {"Authorization": f"Bearer {pinata_jwt}"}
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        list_resp = await client.get(
-            "https://api.pinata.cloud/data/pinList",
-            params={"metadata[name]": action_id, "status": "pinned"},
-            headers=headers,
-        )
-        list_resp.raise_for_status()
-        rows = list_resp.json().get("rows", [])
-
-        if not rows:
-            raise RuntimeError(f"No IPFS pin found for action_id: {action_id}")
-
-        cid = rows[0]["ipfs_pin_hash"]
-
-        content_resp = await client.get(
-            f"https://gateway.pinata.cloud/ipfs/{cid}",
-            timeout=15.0,
-        )
-        content_resp.raise_for_status()
-        ipfs_data = content_resp.json()
-
-    return cid, ipfs_data

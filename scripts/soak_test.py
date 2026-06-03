@@ -246,20 +246,6 @@ async def verify_404(client: httpx.AsyncClient, tally: Tally) -> None:
         tally.check("bogus action_id did not raise", False, str(e)[:120])
 
 
-async def tamper(client: httpx.AsyncClient, action_id: str, tally: Tally) -> None:
-    try:
-        r = await client.get(f"/api/tamper-demo?action_id={action_id}")
-        if r.status_code != 200:
-            tally.check("tamper-demo returns 200", False, f"got {r.status_code}: {r.text[:400]}")
-            return
-        d = r.json()
-        tally.check("tamper proof_original_valid=True",  d.get("proof_original_valid")  is True)
-        tally.check("tamper proof_tampered_valid=False", d.get("proof_tampered_valid") is False)
-        tally.check("tamper detected",                   d.get("tamper_detected")     is True)
-    except Exception as e:
-        tally.check("tamper did not raise", False, str(e)[:120])
-
-
 async def dashboard(client: httpx.AsyncClient, tally: Tally) -> dict:
     try:
         r = await client.get("/api/dashboard")
@@ -387,9 +373,6 @@ async def main():
             if data:
                 dec = data.get("decryption", {})
                 tally.check("bad-hex key_valid=False", dec.get("key_valid") is False)
-
-            section("7. Tamper demo on a verified record")
-            await tamper(client, sample_ids[0], tally)
 
         section("8. 404 path — bogus action_id")
         await verify_404(client, tally)

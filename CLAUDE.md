@@ -1,5 +1,10 @@
 # CLAUDE.md — AgentAudit Project
 
+> **STALE — historical scaffolding (Round 2 MVP).** This file is frozen at the Round 2 single-tenant MVP
+> and is inaccurate in several places. ARCHITECTURE.md, CONTRACTS.md, and README.md are also being
+> outdated by the multi-tenant platform work. For current truth, trust only:
+> `DECISIONS.md`, `FINAL_PHASE.md`, `FINAL_PHASE_PLAN.md`, and `git log`.
+
 ## Project Overview
 
 AgentAudit is a verifiable audit and compliance infrastructure for autonomous AI agents.

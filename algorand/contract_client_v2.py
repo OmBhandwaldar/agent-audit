@@ -265,6 +265,10 @@ async def get_anchor_root(batch_id: str) -> str:
     """
     Retrieve the stored Merkle root from AnchorContract by batch ID.
 
+    Reads the AnchorRecord box state directly via algod — no transaction, no fee,
+    no signing key required. This is the verify read-path: it must scale to many
+    verifications without each one costing an on-chain transaction.
+
     Args:
         batch_id: The batch ID used when submit_root was called.
 
@@ -272,51 +276,30 @@ async def get_anchor_root(batch_id: str) -> str:
         Hex-encoded SHA256 Merkle root string.
 
     Raises:
-        RuntimeError: If the contract call fails or batch is not found.
+        RuntimeError: If the box is missing or malformed.
     """
     if ANCHOR_APP_ID == 0:
         raise RuntimeError("ANCHOR_APP_ID not set in .env")
-    if not DEPLOYER_MNEMONIC:
-        raise RuntimeError("DEPLOYER_MNEMONIC not set in .env")
 
-    deployer_key = mnemonic.to_private_key(DEPLOYER_MNEMONIC)
-    deployer_address = account.address_from_private_key(deployer_key)
     client = get_algod_client()
-
-    selector = abi.Method.from_signature(
-        "get_root(string)string"
-    ).get_selector()
-
-    root_box_key = _compute_box_key(batch_id, b"root:")
-
-    params = client.suggested_params()
-
-    txn = transaction.ApplicationCallTxn(
-        sender=deployer_address,
-        sp=params,
-        index=ANCHOR_APP_ID,
-        on_complete=transaction.OnComplete.NoOpOC,
-        app_args=[selector, _encode_string(batch_id)],
-        boxes=[(ANCHOR_APP_ID, root_box_key)],
-    )
-
-    signed_txn = txn.sign(deployer_key)
+    box_name = _compute_box_key(batch_id, b"root:")
 
     try:
-        tx_id = client.send_transaction(signed_txn)
-        result = transaction.wait_for_confirmation(client, tx_id, 4)
+        box = client.application_box_by_name(ANCHOR_APP_ID, box_name)
     except Exception as e:
-        raise RuntimeError(f"get_anchor_root failed for batch_id '{batch_id}': {e}")
+        raise RuntimeError(f"get_anchor_root: box not found for batch_id '{batch_id}': {e}")
 
-    logs = result.get("logs", [])
-    if not logs:
-        raise RuntimeError(f"get_anchor_root: no return value for batch_id '{batch_id}'")
+    raw = base64.b64decode(box["value"])
+    if len(raw) < 2:
+        raise RuntimeError(f"get_anchor_root: empty box for batch_id '{batch_id}'")
 
-    raw = base64.b64decode(logs[-1])
-    if len(raw) <= 6:
-        raise RuntimeError(f"get_anchor_root: malformed return for batch_id '{batch_id}'")
-
-    return _decode_arc4_string(raw[4:])
+    # AnchorRecord is an ARC4 struct; merkle_root is its first (dynamic) field.
+    # Head: [merkle_root offset: u16][leaf_count: u64][timestamp: u64][batch_id offset: u16].
+    # The merkle_root tail (u16 length + utf8 bytes) starts at the offset read from raw[0:2].
+    offset = int.from_bytes(raw[0:2], "big")
+    if offset + 2 > len(raw):
+        raise RuntimeError(f"get_anchor_root: malformed box for batch_id '{batch_id}'")
+    return _decode_arc4_string(raw[offset:])
 
 
 async def add_vendor_v2(vendor_id: str) -> str:

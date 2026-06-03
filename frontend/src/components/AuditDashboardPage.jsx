@@ -1046,8 +1046,7 @@ function VerifyModal({ apiBase, onClose }) {
             {/* Tamper-evidence is structurally guaranteed by the Merkle root + IPFS CID
                 being on-chain. Modifying any record changes the leaf hash, which breaks
                 the inclusion proof against the immutable on-chain root — no extra UI
-                demonstration needed. The /api/tamper-demo endpoint remains available
-                for debugging. */}
+                demonstration needed. */}
 
             {/* "Verify Another" button removed — close via the X button in the header
                 and reopen the modal to verify a new action ID. */}
