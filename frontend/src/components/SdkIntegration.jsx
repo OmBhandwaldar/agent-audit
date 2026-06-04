@@ -12,64 +12,66 @@ const CODE_SECTIONS = [
     id: "python_sdk",
     title: "Python SDK",
     lang: "python",
-    description: "Drop-in integration for any Python agent. Two lines of code.",
-    code: `from agentaudit import audit
+    description: "Drop-in for any Python agent. Submit a decision under your org's API key.",
+    code: `from agentaudit import AuditClient
 
-result = await audit(
-    agent_id="my_payment_agent",
-    action="approve_payment",
+audit = AuditClient(api_key="aa_live_...", base_url="https://your-agentaudit-host")
+
+result = audit.audit(
+    agent_id="claims_agent",
+    action="approve_claim",
     decision="approved",
-    amount=3000,
-    vendor_id="VENDOR_001",
-    policy_id="limit_5000"
+    fields={"claim_amount": 150000, "hospital": "HOSP_001"},
+    reasoning_trace=trace,
 )
-# Returns: action_id, ipfs_cid, algorand_tx_id, policy_result, asa_minted`,
+# result: action_id, decision (on-chain), asa_minted, policy_result, ipfs_cid, algorand_tx_id`,
   },
   {
     id: "rest_api",
     title: "REST API",
     lang: "http",
-    description: "Language-agnostic. Works with LangChain, AutoGPT, CrewAI, or any custom agent.",
-    code: `POST https://api.agentaudit.io/v1/audit
+    description: "Language-agnostic. Any stack POSTs to /v1/audit with its API key.",
+    code: `POST https://your-agentaudit-host/v1/audit
 Authorization: Bearer <your_api_key>
 Content-Type: application/json
 
 {
-  "agent_id": "my_agent",
-  "action": "approve_payment",
+  "agent_id": "claims_agent",
+  "action": "approve_claim",
   "decision": "approved",
-  "amount": 3000,
-  "vendor_id": "VENDOR_001"
+  "fields": { "claim_amount": 150000, "hospital": "HOSP_001" },
+  "reasoning_trace": []
 }`,
   },
   {
     id: "decorator",
     title: "Python Decorator",
     lang: "python",
-    description: "Zero changes to your existing agent code. Wrap the decision function.",
-    code: `from agentaudit import agentaudit
+    description: "Zero changes to your decision logic — wrap the function and it's audited.",
+    code: `from agentaudit import AuditClient
+audit = AuditClient(api_key="aa_live_...")
 
-@agentaudit(policy="payment_policy_v1")
-async def my_agent_decision(amount: int, vendor_id: str) -> str:
-    # Your existing agent logic — completely unchanged
-    if amount < 5000:
-        return "approved"
-    return "rejected"
+@audit.capture(agent_id="claims_agent", action="approve_claim")
+def decide(claim_amount, hospital):
+    # your existing agent logic — unchanged
+    decision = "approved" if claim_amount < 200000 else "rejected"
+    return {"decision": decision,
+            "fields": {"claim_amount": claim_amount, "hospital": hospital}}
 
-# AgentAudit captures, hashes, and records every call automatically`,
+# every call is policy-checked on-chain, encrypted, and anchored automatically`,
   },
   {
     id: "response",
     title: "What You Get Back",
     lang: "json",
-    description: "Every audit call returns a fully verified, on-chain anchored record.",
+    description: "The on-chain decision is authoritative — it can override the agent's own.",
     code: `{
-  "action_id": "1775657876_7247",
+  "action_id": "1780562533_3364",
   "decision": "approved",
-  "ipfs_cid": "QmSukKcgHJ9KwyMV5PLWqqADrFfX8CfD4QWGE5hRezXzrG",
-  "algorand_tx_id": "QCEXKCS4ZD2QXGQIP6HMELQLNOFKIKMNCWIFMXSHEVS7II7Q",
-  "policy_result": "amount:pass|vendor:pass",
-  "asa_minted": true
+  "asa_minted": true,
+  "policy_result": "pass:onchain|pass:onchain",
+  "ipfs_cid": "QmUrXohg1AXQxacEMJ4LTvxvVCi6U4zAWQ7NtmMUfHom6Q",
+  "algorand_tx_id": "GO4XEN3Z2WGS34AFC5RS7S4F2YHMMA5I22GEQNQHBR4D3R72FVRA"
 }`,
   },
 ]

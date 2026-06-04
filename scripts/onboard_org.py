@@ -5,10 +5,12 @@ Issues an API key + a per-org encryption key, registers an agent, and writes the
 agent's policy set both on-chain (PolicyContract) and to the tenant store.
 
 Usage:
-  python scripts/onboard_org.py [org_id] [agent_id]
+  python scripts/onboard_org.py [org_id] [agent_id] [preset]
 
-Defaults: org_id=acme, agent_id=payment_agent
-Policy set: amount < 5000 (Mode 1)  AND  vendor in {VENDOR_001, VENDOR_002}
+preset in {payment (default), insurance, lending} — the policy set to register:
+  payment   : amount < 5000        AND vendor in {VENDOR_001, VENDOR_002}
+  insurance : claim_amount < 200000 AND hospital in {HOSP_001, HOSP_002}
+  lending   : loan_amount < 5000000 AND rate <= 24   (rate is a custom predicate)
 """
 
 import asyncio
@@ -17,40 +19,62 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from algorand.contract_client_v2 import MODE_ONCHAIN, OP_IN, OP_LT  # noqa: E402
+from algorand.contract_client_v2 import MODE_ONCHAIN, OP_IN, OP_LE, OP_LT  # noqa: E402
 from tenancy.provisioning import create_org, register_agent, register_policy  # noqa: E402
 from tenancy.store import TenantStore  # noqa: E402
+
+PRESETS = {
+    "payment": [
+        {"field": "amount", "operator": OP_LT, "value_num": 5000},
+        {"field": "vendor", "operator": OP_IN, "set_values": ["VENDOR_001", "VENDOR_002"]},
+    ],
+    "insurance": [
+        {"field": "claim_amount", "operator": OP_LT, "value_num": 200_000},
+        {"field": "hospital", "operator": OP_IN, "set_values": ["HOSP_001", "HOSP_002"]},
+    ],
+    "lending": [
+        {"field": "loan_amount", "operator": OP_LT, "value_num": 5_000_000},
+        {"field": "rate", "operator": OP_LE, "value_num": 24},
+    ],
+}
 
 
 async def main() -> None:
     org_id = sys.argv[1] if len(sys.argv) > 1 else "acme"
     agent_id = sys.argv[2] if len(sys.argv) > 2 else "payment_agent"
+    preset = sys.argv[3] if len(sys.argv) > 3 else "payment"
+
+    if preset not in PRESETS:
+        print(f"Unknown preset '{preset}'. Choose from: {', '.join(PRESETS)}")
+        sys.exit(1)
 
     store = TenantStore()
     if store.get_org(org_id):
         print(f"Org '{org_id}' already exists. Choose a different org_id.")
         sys.exit(1)
 
-    print(f"Onboarding {org_id} / {agent_id} ...\n")
+    print(f"Onboarding {org_id} / {agent_id}  (preset: {preset}) ...\n")
 
     creds = create_org(store, org_id)
     register_agent(store, org_id, agent_id)
 
     print("Registering policies on-chain...")
-    await register_policy(store, org_id, agent_id, field="amount", mode=MODE_ONCHAIN, operator=OP_LT, value_num=5000)
-    await register_policy(
-        store, org_id, agent_id,
-        field="vendor", mode=MODE_ONCHAIN, operator=OP_IN,
-        set_values=["VENDOR_001", "VENDOR_002"],
-    )
+    for spec in PRESETS[preset]:
+        await register_policy(
+            store, org_id, agent_id,
+            field=spec["field"],
+            mode=MODE_ONCHAIN,
+            operator=spec["operator"],
+            value_num=spec.get("value_num", 0),
+            set_values=spec.get("set_values"),
+        )
 
     print("\n=== Onboarded ===")
     print(f"  org_id:         {creds['org_id']}")
     print(f"  agent_id:       {agent_id}")
+    print(f"  preset:         {preset}")
     print(f"  API key:        {creds['api_key']}        (save this — shown once)")
     print(f"  Encryption key: {creds['encryption_key']}")
-    print(f"  billing_mode:   {creds['billing_mode']}")
-    print(f"  policies:       amount < 5000  AND  vendor in {{VENDOR_001, VENDOR_002}}")
     print(f"  stored rules:   {store.get_rules(org_id, agent_id)}")
 
 
