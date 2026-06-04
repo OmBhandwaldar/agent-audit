@@ -22,6 +22,7 @@ import struct
 import sys
 
 from algosdk import abi, account, mnemonic, transaction
+from algosdk.logic import get_application_address
 from algosdk.v2client import algod
 from dotenv import load_dotenv
 
@@ -125,13 +126,13 @@ def deploy_policy_contract(
 
     params = client.suggested_params()
 
-    # Global state: 2 uint64 (compliance_asa_id, policy_limit)
-    global_schema = transaction.StateSchema(num_uints=2, num_byte_slices=0)
+    # Global state: 1 uint64 (compliance_asa_id). Policy is per-tenant in boxes now.
+    global_schema = transaction.StateSchema(num_uints=1, num_byte_slices=0)
     local_schema = transaction.StateSchema(num_uints=0, num_byte_slices=0)
 
-    # ABI-encode initialize(uint64,uint64)void
-    selector = abi.Method.from_signature("initialize(uint64,uint64)void").get_selector()
-    app_args = [selector, struct.pack(">Q", COMPLIANCE_ASA_ID), struct.pack(">Q", POLICY_LIMIT)]
+    # ABI-encode initialize(uint64)void
+    selector = abi.Method.from_signature("initialize(uint64)void").get_selector()
+    app_args = [selector, struct.pack(">Q", COMPLIANCE_ASA_ID)]
 
     txn = transaction.ApplicationCreateTxn(
         sender=deployer_address,
@@ -154,9 +155,17 @@ def deploy_policy_contract(
     print(f"   App ID:       {app_id}")
     print(f"   TX ID:        {tx_id}")
     print(f"   ASA ID set:   {COMPLIANCE_ASA_ID}")
-    print(f"   Policy limit: {POLICY_LIMIT}")
     print(f"   Explorer:     https://testnet.explorer.perawallet.app/application/{app_id}")
     return app_id
+
+
+def fund_app_account(client, deployer_key, deployer_address, app_id, microalgos=1_000_000):
+    """Send ALGO to the app account so it can pay box MBR + ASA opt-in min balance."""
+    app_addr = get_application_address(app_id)
+    txn = transaction.PaymentTxn(deployer_address, client.suggested_params(), app_addr, microalgos)
+    tx_id = client.send_transaction(txn.sign(deployer_key))
+    transaction.wait_for_confirmation(client, tx_id, 4)
+    print(f"   Funded app {app_id} ({app_addr}) with {microalgos / 1_000_000} ALGO  TX {tx_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -239,23 +248,23 @@ def main() -> None:
             "Fund at https://bank.testnet.algorand.network"
         )
 
-    # Step 1: Deploy PolicyContract
-    print("\n═══ Step 1: Deploy PolicyContract ═══")
+    # Deploy the multi-tenant PolicyContract only. AnchorContract is unchanged in this
+    # phase, so its existing deployment (ANCHOR_APP_ID) is kept and old anchored batches
+    # stay verifiable. Re-run deploy_anchor_contract() only if AnchorContract changes.
+    print("\n═══ Deploy multi-tenant PolicyContract ═══")
     policy_app_id = deploy_policy_contract(client, deployer_key, deployer_address)
     update_env("POLICY_APP_ID", str(policy_app_id))
 
-    # Step 2: Deploy AnchorContract
-    print("\n═══ Step 2: Deploy AnchorContract ═══")
-    anchor_app_id = deploy_anchor_contract(client, deployer_key, deployer_address)
-    update_env("ANCHOR_APP_ID", str(anchor_app_id))
+    print("\n── Funding PolicyContract for box storage + ASA opt-in ──")
+    fund_app_account(client, deployer_key, deployer_address, policy_app_id, microalgos=1_000_000)
 
-    print("\n═══ Phase 2 Deploy Complete ═══")
-    print(f"POLICY_APP_ID  = {policy_app_id}")
-    print(f"ANCHOR_APP_ID  = {anchor_app_id}")
+    print("\n═══ PolicyContract Deploy Complete ═══")
+    print(f"POLICY_APP_ID = {policy_app_id}")
+    print(f"ANCHOR_APP_ID = {os.getenv('ANCHOR_APP_ID')} (unchanged)")
     print("\nNext steps:")
-    print("  1. python scripts/opt_in_asa_phase2.py   ← opt PolicyContract into AACR")
-    print("  2. Send AACR tokens to PolicyContract address")
-    print("  3. python scripts/seed_vendors_v2.py      ← add VENDOR_001, VENDOR_002")
+    print("  1. python scripts/opt_in_asa_phase2.py    ← opt PolicyContract into AACR")
+    print("  2. python scripts/send_aacr_to_policy.py  ← fund contract with AACR supply")
+    print("  3. python scripts/check_phase1.py         ← register rules for a test org + run check_and_mint")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ POLICY_APP_ID = int(os.getenv("POLICY_APP_ID", "0"))
 CONTRACT_APP_ID = int(os.getenv("CONTRACT_APP_ID", "0"))  # old AuditContract
 COMPLIANCE_ASA_ID = int(os.getenv("COMPLIANCE_ASA_ID", "0"))
 
-SEND_AMOUNT = 37
+SEND_AMOUNT = 20
 
 
 def main() -> None:
