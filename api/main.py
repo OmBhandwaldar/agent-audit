@@ -32,6 +32,7 @@ from batcher.store import BatchStore
 from crypto.payload import decrypt_payload, parse_hex_key
 from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2, run_ingest_v2
 from tenancy.store import TenantStore
+from api.x402_gate import install_x402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +49,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# x402 payment gate (Flavor 1, behind X402_ENABLED). Protects POST /v1/audit/x402.
+X402_ON = install_x402(app)
 
 # In-memory audit history — holds up to 50 most recent audits, oldest auto-dropped
 recent_audits: deque = deque(maxlen=50)
@@ -266,6 +270,48 @@ async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> 
         return result
     except Exception as e:
         logger.error("Ingest failed: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class X402IngestRequest(BaseModel):
+    """Request body for POST /v1/audit/x402 (x402 payment authorizes; org declared in body)."""
+
+    org_id: str = Field(..., min_length=1, description="Org the paying agent belongs to")
+    agent_id: str = Field(..., min_length=1, description="Agent id within the org")
+    action: str = Field(..., min_length=1)
+    decision: str = Field(..., min_length=1)
+    fields: dict = Field(default_factory=dict)
+    reasoning_trace: list = Field(default_factory=list)
+
+
+@app.post("/v1/audit/x402")
+async def ingest_audit_x402(req: X402IngestRequest) -> dict:
+    """
+    Pay-per-call ingest. The x402 middleware verifies a $0.01 USDC payment before this
+    handler runs and settles after it returns; the org is declared in the body (Flavor 1:
+    provisioned tenant, payment authorizes the call instead of an API key).
+    """
+    org = tenant_store.get_org(req.org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail=f"Unknown org '{req.org_id}'")
+    logger.info("x402 ingest: org=%s agent=%s action=%s", req.org_id, req.agent_id, req.action)
+    try:
+        result = await run_ingest_v2(
+            req.org_id, req.agent_id, req.action, req.decision,
+            req.fields, req.reasoning_trace, batch_store, tenant_store,
+        )
+        recent_audits.appendleft({
+            "action_id": result["action_id"], "decision": result["decision"],
+            "agent_decision": result["agent_decision"], "amount": req.fields.get("amount", 0),
+            "vendor_id": req.fields.get("vendor", ""), "agent_type_id": req.agent_id,
+            "policy_checks": result["policy_checks"], "policy_result": result["policy_result"],
+            "asa_minted": result["asa_minted"], "ipfs_cid": result["ipfs_cid"],
+            "algorand_tx_id": result["algorand_tx_id"], "timestamp": int(time.time()),
+        })
+        result["billing"] = "x402"
+        return result
+    except Exception as e:
+        logger.error("x402 ingest failed: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
