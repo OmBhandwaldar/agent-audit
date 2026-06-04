@@ -20,9 +20,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from algorand.contract_client_v2 import MODE_ONCHAIN, OP_IN, OP_LE, OP_LT  # noqa: E402
-from tenancy.provisioning import create_org, register_agent, register_policy  # noqa: E402
+from tenancy.provisioning import (  # noqa: E402
+    create_org,
+    register_agent,
+    register_policy,
+    register_sensitive_policy,
+)
 from tenancy.store import TenantStore  # noqa: E402
 
+# Each spec is a Mode-1 (public) predicate unless "private": True (Mode-2, encrypted threshold).
 PRESETS = {
     "payment": [
         {"field": "amount", "operator": OP_LT, "value_num": 5000},
@@ -35,6 +41,11 @@ PRESETS = {
     "lending": [
         {"field": "loan_amount", "operator": OP_LT, "value_num": 5_000_000},
         {"field": "rate", "operator": OP_LE, "value_num": 24},
+    ],
+    # Mixed: a public loan limit + a PRIVATE internal risk-tier threshold (Mode 2).
+    "lending_private": [
+        {"field": "loan_amount", "operator": OP_LT, "value_num": 5_000_000},
+        {"field": "risk_tier", "operator": OP_LE, "value_num": 3, "private": True},
     ],
 }
 
@@ -60,14 +71,20 @@ async def main() -> None:
 
     print("Registering policies on-chain...")
     for spec in PRESETS[preset]:
-        await register_policy(
-            store, org_id, agent_id,
-            field=spec["field"],
-            mode=MODE_ONCHAIN,
-            operator=spec["operator"],
-            value_num=spec.get("value_num", 0),
-            set_values=spec.get("set_values"),
-        )
+        if spec.get("private"):
+            await register_sensitive_policy(
+                store, org_id, agent_id,
+                field=spec["field"], operator=spec["operator"], value_num=spec["value_num"],
+            )
+        else:
+            await register_policy(
+                store, org_id, agent_id,
+                field=spec["field"],
+                mode=MODE_ONCHAIN,
+                operator=spec["operator"],
+                value_num=spec.get("value_num", 0),
+                set_values=spec.get("set_values"),
+            )
 
     print("\n=== Onboarded ===")
     print(f"  org_id:         {creds['org_id']}")

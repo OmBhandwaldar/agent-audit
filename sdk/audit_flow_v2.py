@@ -69,6 +69,7 @@ async def _execute_pipeline(
     action_id = record["action_id"]
     record["org_id"] = org_id
     record["agent_id"] = agent_id
+    record["fields"] = decision_fields  # kept for auditor re-verification (incl. Mode 2)
 
     # 1. Encrypt under the org's key
     enc_key = parse_hex_key(org["enc_key_hex"])

@@ -32,6 +32,7 @@ from batcher.store import BatchStore
 from crypto.payload import decrypt_payload, parse_hex_key
 from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2, run_ingest_v2
 from tenancy.store import TenantStore
+from tenancy.provisioning import reverify_mode2
 from api.x402_gate import install_x402
 
 logging.basicConfig(level=logging.INFO)
@@ -381,6 +382,10 @@ async def verify(
     ipfs_cid = record.get("ipfs_cid", "")
     decryption_section = await _attempt_decryption(ipfs_cid, x_auditor_key, action_id)
 
+    # Mode-2 auditor re-check: with the org key, decrypt each private policy doc, confirm it
+    # hashes to the on-chain commitment, and re-run the check against the decision's fields.
+    mode2_reverify = _reverify_mode2(record, x_auditor_key)
+
     return {
         "action_id": action_id,
         "anchor_status": "anchored",
@@ -392,6 +397,7 @@ async def verify(
             "merkle_root_onchain": onchain_root,
         },
         "decryption": decryption_section,
+        "mode2_reverify": mode2_reverify,
         "record_summary": _build_record_summary(record),
     }
 
@@ -584,6 +590,30 @@ async def health() -> dict:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _reverify_mode2(record: dict, x_auditor_key: str | None) -> list | None:
+    """
+    Auditor re-check of Mode-2 (private) policies for a record, if a valid key is supplied.
+
+    Returns a per-rule list of {idx, field, commitment_matches, recheck_pass}, or None when
+    no/invalid key was given or the org+agent has no Mode-2 rules.
+    """
+    if not x_auditor_key:
+        return None
+    org_id, agent_id = record.get("org_id"), record.get("agent_id")
+    if not org_id or not agent_id:
+        return None
+    try:
+        key_bytes = parse_hex_key(x_auditor_key)
+    except ValueError:
+        return None
+    try:
+        results = reverify_mode2(tenant_store, org_id, agent_id, record.get("fields", {}), key_bytes)
+    except Exception as e:
+        logger.warning("Mode-2 reverify failed: %s", e)
+        return None
+    return results or None
 
 
 def _build_record_summary(record: dict) -> dict:

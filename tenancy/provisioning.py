@@ -7,17 +7,25 @@ the tenant. register_agent + register_policy register an agent's policy set both
 """
 
 import hashlib
+import json
 import logging
 import secrets
 
 from algorand.contract_client_v2 import (
     MODE_ATTESTED,
     MODE_ONCHAIN,
+    OP_EQ,
+    OP_GE,
+    OP_GT,
     OP_IN,
+    OP_LE,
+    OP_LT,
+    OP_NE,
     OP_NOT_IN,
     add_to_set,
     register_rule,
 )
+from crypto.payload import decrypt_payload, encrypt_payload, parse_hex_key
 from tenancy.store import TenantStore
 
 logger = logging.getLogger(__name__)
@@ -102,16 +110,81 @@ async def register_policy(
     return idx
 
 
+# ---------------------------------------------------------------------------
+# Mode 2 (private policy): doc + commitment + off-chain evaluation
+# ---------------------------------------------------------------------------
+
+
+def _canonical(doc: dict) -> str:
+    """Canonical JSON for committing/hashing a policy doc."""
+    return json.dumps(doc, sort_keys=True, separators=(",", ":"))
+
+
+def policy_commitment(doc: dict) -> str:
+    """sha256 of the canonical policy doc — the value stored on-chain for a Mode-2 rule."""
+    return hashlib.sha256(_canonical(doc).encode()).hexdigest()
+
+
+def _eval_numeric(operator: int, lhs: int, rhs: int) -> bool:
+    """Evaluate a numeric predicate operator."""
+    return {
+        OP_LT: lhs < rhs, OP_LE: lhs <= rhs, OP_GT: lhs > rhs,
+        OP_GE: lhs >= rhs, OP_EQ: lhs == rhs, OP_NE: lhs != rhs,
+    }.get(operator, False)
+
+
+async def register_sensitive_policy(
+    store: TenantStore,
+    org_id: str,
+    agent_id: str,
+    *,
+    field: str,
+    operator: int,
+    value_num: int,
+) -> int:
+    """
+    Register a Mode-2 (private) numeric predicate. The threshold stays secret: the policy
+    doc is encrypted under the org key and stored off-chain; only its sha256 commitment is
+    written on-chain (operator/value are NOT on-chain). Returns the rule index.
+    """
+    org = store.get_org(org_id)
+    if not org:
+        raise ValueError(f"Org '{org_id}' does not exist")
+
+    doc = {"field": field, "operator": operator, "value_num": value_num}
+    commitment = policy_commitment(doc)
+    enc_key = parse_hex_key(org["enc_key_hex"])
+    envelope = encrypt_payload(doc, key=enc_key)
+
+    # On-chain: mode=ATTESTED + commitment + field label. operator/value omitted (private).
+    _tx_id, idx = await register_rule(org_id, agent_id, MODE_ATTESTED, 0, 0, field, commitment)
+    store.add_rule(org_id, agent_id, idx, MODE_ATTESTED, 0, 0, field, commitment, json.dumps(envelope))
+    logger.info("Registered Mode-2 (private) policy %s/%s idx=%d field=%s", org_id, agent_id, idx, field)
+    return idx
+
+
+def _evaluate_sensitive(rule: dict, field_value, enc_key: bytes) -> bool:
+    """Decrypt a Mode-2 rule's policy doc with the org key and evaluate it off-chain."""
+    if field_value is None or not rule.get("doc_cipher"):
+        return False
+    doc = decrypt_payload(json.loads(rule["doc_cipher"]), key=enc_key)
+    return _eval_numeric(int(doc["operator"]), int(field_value), int(doc["value_num"]))
+
+
 def build_check_args(store: TenantStore, org_id: str, agent_id: str, decision_fields: dict) -> dict:
     """
     Build the per-rule arrays for submit_policy_check from a decision's field values.
 
-    decision_fields maps field name -> value (int for numeric ops, str for set ops).
-    For Mode-2 rules, decision_fields[field] should be a bool (the off-chain result).
+    Mode-1 rules: numeric value -> values_num; set value -> values_str.
+    Mode-2 rules: the backend enforces the private policy off-chain (decrypt the doc with
+    the org key, evaluate) and passes the result as attested[i].
 
     Returns {values_num, values_str, attested, fields} aligned to the agent's rule order.
     """
     rules = store.get_rules(org_id, agent_id)
+    org = store.get_org(org_id)
+    enc_key = parse_hex_key(org["enc_key_hex"]) if org else b""
+
     values_num: list[int] = []
     values_str: list[str] = []
     attested: list[bool] = []
@@ -124,7 +197,7 @@ def build_check_args(store: TenantStore, org_id: str, agent_id: str, decision_fi
         if rule["mode"] == MODE_ATTESTED:
             values_num.append(0)
             values_str.append("")
-            attested.append(bool(val))
+            attested.append(_evaluate_sensitive(rule, val, enc_key))
         elif rule["operator"] in (OP_IN, OP_NOT_IN):
             values_num.append(0)
             values_str.append(str(val) if val is not None else "")
@@ -135,3 +208,29 @@ def build_check_args(store: TenantStore, org_id: str, agent_id: str, decision_fi
             attested.append(False)
 
     return {"values_num": values_num, "values_str": values_str, "attested": attested, "fields": fields}
+
+
+def reverify_mode2(store: TenantStore, org_id: str, agent_id: str, decision_fields: dict, key_bytes: bytes) -> list[dict]:
+    """
+    Auditor re-check of Mode-2 rules: with the org key, decrypt each private policy doc,
+    confirm it hashes to the on-chain commitment, and re-run the check against the decision.
+
+    Returns one dict per Mode-2 rule: {idx, field, commitment_matches, recheck_pass}.
+    """
+    results: list[dict] = []
+    for rule in store.get_rules(org_id, agent_id):
+        if rule["mode"] != MODE_ATTESTED or not rule.get("doc_cipher"):
+            continue
+        try:
+            doc = decrypt_payload(json.loads(rule["doc_cipher"]), key=key_bytes)
+        except Exception:
+            results.append({"idx": rule["idx"], "field": rule["field"], "commitment_matches": False, "recheck_pass": None})
+            continue
+        matches = policy_commitment(doc) == rule["commitment"]
+        val = decision_fields.get(rule["field"])
+        recheck = _eval_numeric(int(doc["operator"]), int(val), int(doc["value_num"])) if val is not None else None
+        results.append({
+            "idx": rule["idx"], "field": rule["field"],
+            "commitment_matches": matches, "recheck_pass": recheck,
+        })
+    return results

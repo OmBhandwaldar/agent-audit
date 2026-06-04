@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS agent_rules (
     value_num  INTEGER NOT NULL,
     field      TEXT NOT NULL,
     commitment TEXT NOT NULL DEFAULT '',
+    doc_cipher TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (org_id, agent_id, idx)
 );
 
@@ -61,6 +62,10 @@ class TenantStore:
         self._db_path = db_path
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            # Migration: add doc_cipher to agent_rules for DBs created before Mode 2.
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(agent_rules)").fetchall()]
+            if "doc_cipher" not in cols:
+                conn.execute("ALTER TABLE agent_rules ADD COLUMN doc_cipher TEXT NOT NULL DEFAULT ''")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
@@ -133,21 +138,28 @@ class TenantStore:
         value_num: int,
         field: str,
         commitment: str = "",
+        doc_cipher: str = "",
     ) -> None:
-        """Record a policy rule's metadata mirroring the on-chain registration."""
+        """
+        Record a policy rule's metadata mirroring the on-chain registration.
+
+        For Mode-2 (private) rules, doc_cipher holds the encrypted policy doc envelope
+        (JSON) whose sha256 equals the on-chain commitment; operator/value_num are 0
+        on-chain and live only inside the encrypted doc.
+        """
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO agent_rules "
-                "(org_id, agent_id, idx, mode, operator, value_num, field, commitment) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (org_id, agent_id, idx, mode, operator, value_num, field, commitment),
+                "(org_id, agent_id, idx, mode, operator, value_num, field, commitment, doc_cipher) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (org_id, agent_id, idx, mode, operator, value_num, field, commitment, doc_cipher),
             )
 
     def get_rules(self, org_id: str, agent_id: str) -> list[dict]:
         """Return an agent's rules ordered by index (matching on-chain order)."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT idx, mode, operator, value_num, field, commitment "
+                "SELECT idx, mode, operator, value_num, field, commitment, doc_cipher "
                 "FROM agent_rules WHERE org_id = ? AND agent_id = ? ORDER BY idx",
                 (org_id, agent_id),
             ).fetchall()
