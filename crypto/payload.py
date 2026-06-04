@@ -56,22 +56,21 @@ def _load_key() -> bytes:
     return key
 
 
-def encrypt_payload(data: dict) -> dict:
+def encrypt_payload(data: dict, key: bytes | None = None) -> dict:
     """
     Encrypt a decision record dict using AES-GCM-256.
 
-    A fresh random nonce is generated for every call.
-
-    Args:
-        data: The plaintext decision record to encrypt.
-
-    Returns:
-        Encrypted envelope dict suitable for JSON serialization and IPFS upload.
+    A fresh random nonce is generated for every call. If key is omitted, the global
+    PAYLOAD_ENCRYPTION_KEY is used; pass an explicit 32-byte per-org key for
+    multi-tenant records.
 
     Raises:
-        RuntimeError: If PAYLOAD_ENCRYPTION_KEY is missing or invalid.
+        RuntimeError: If the key is missing or the wrong length.
     """
-    key = _load_key()
+    if key is None:
+        key = _load_key()
+    elif len(key) != _KEY_BYTES:
+        raise RuntimeError(f"Supplied key must be {_KEY_BYTES} bytes. Got {len(key)} bytes.")
     nonce = secrets.token_bytes(_NONCE_BYTES)
     plaintext = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
 

@@ -12,6 +12,7 @@ Run with: uvicorn api.main:app --reload --port 8000
 """
 
 import csv
+import hashlib
 import io
 import logging
 import os
@@ -19,7 +20,7 @@ import time
 from collections import deque
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -29,7 +30,8 @@ from batcher.anchor import flush_and_anchor
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
 from crypto.payload import decrypt_payload, parse_hex_key
-from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2
+from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2, run_ingest_v2
+from tenancy.store import TenantStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,6 +54,25 @@ recent_audits: deque = deque(maxlen=50)
 
 # Shared SQLite-backed batcher — persists across requests
 batch_store = BatchStore()
+
+# Shared tenant store (orgs, agents, per-agent rule metadata, per-org keys)
+tenant_store = TenantStore()
+
+
+def require_org(authorization: str | None = Header(None)) -> dict:
+    """
+    Resolve the calling org from a Bearer API key (auth dependency for /v1/*).
+
+    Raises 401 if the header is missing or the key is unknown.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing 'Authorization: Bearer <api_key>' header")
+    api_key = authorization.split(" ", 1)[1].strip()
+    api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    org = tenant_store.get_org_by_api_key_hash(api_key_hash)
+    if not org:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return org
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +149,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
     """
     logger.info("Received audit request: amount=%d vendor_id=%s", req.amount, req.vendor_id)
     try:
-        result = await run_audit_flow_v2(req.amount, req.vendor_id, batch_store, req.agent_type_id)
+        result = await run_audit_flow_v2(req.amount, req.vendor_id, batch_store, tenant_store)
         logger.info(
             "Audit complete: action_id=%s decision=%s policy=%s pending=%d",
             result["action_id"], result["decision"],
@@ -170,7 +191,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
     """
     logger.info("Chat request: %s", req.message)
     try:
-        result = await run_chat_flow_v2(req.message, batch_store, req.agent_type_id)
+        result = await run_chat_flow_v2(req.message, batch_store, tenant_store)
 
         # Off-topic: agent replied without running the pipeline
         if result.get("off_topic"):
@@ -199,6 +220,52 @@ async def chat(req: ChatRequest) -> ChatResponse:
         return ChatResponse(reply=reply, audit_result=result)
     except Exception as e:
         logger.error("Chat pipeline failed: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class IngestRequest(BaseModel):
+    """Request body for POST /v1/audit (external agent submits a finished decision)."""
+
+    agent_id: str = Field(..., min_length=1, description="Agent id within the org (matches provisioned rules)")
+    action: str = Field(..., min_length=1, description="Decision type, e.g. approve_loan")
+    decision: str = Field(..., min_length=1, description="The agent's own decision label")
+    fields: dict = Field(default_factory=dict, description="Decision field values keyed by name")
+    reasoning_trace: list = Field(default_factory=list, description="Agent tool-call trace")
+
+
+@app.post("/v1/audit")
+async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> dict:
+    """
+    Product ingest endpoint: audit a decision an external agent already made.
+
+    Auth: `Authorization: Bearer <api_key>` resolves the org. The decision is audited
+    under org_id/req.agent_id against that agent's on-chain policy set (encrypted under
+    the org's key, policy-checked, queued for batch anchoring).
+    """
+    org_id = org["org_id"]
+    logger.info("Ingest: org=%s agent=%s action=%s", org_id, req.agent_id, req.action)
+    try:
+        result = await run_ingest_v2(
+            org_id, req.agent_id, req.action, req.decision,
+            req.fields, req.reasoning_trace, batch_store, tenant_store,
+        )
+        recent_audits.appendleft({
+            "action_id": result["action_id"],
+            "decision": result["decision"],
+            "agent_decision": result["agent_decision"],
+            "amount": req.fields.get("amount", 0),
+            "vendor_id": req.fields.get("vendor", ""),
+            "agent_type_id": req.agent_id,
+            "policy_checks": result["policy_checks"],
+            "policy_result": result["policy_result"],
+            "asa_minted": result["asa_minted"],
+            "ipfs_cid": result["ipfs_cid"],
+            "algorand_tx_id": result["algorand_tx_id"],
+            "timestamp": int(time.time()),
+        })
+        return result
+    except Exception as e:
+        logger.error("Ingest failed: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
