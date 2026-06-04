@@ -25,6 +25,7 @@ from tenancy.provisioning import (  # noqa: E402
     register_agent,
     register_policy,
     register_sensitive_policy,
+    register_sensitive_set_policy,
 )
 from tenancy.store import TenantStore  # noqa: E402
 
@@ -46,6 +47,11 @@ PRESETS = {
     "lending_private": [
         {"field": "loan_amount", "operator": OP_LT, "value_num": 5_000_000},
         {"field": "risk_tier", "operator": OP_LE, "value_num": 3, "private": True},
+    ],
+    # Mixed: a public claim limit + a PRIVATE (confidential) approved-hospital whitelist.
+    "insurance_private": [
+        {"field": "claim_amount", "operator": OP_LT, "value_num": 200_000},
+        {"field": "hospital", "operator": OP_IN, "set_values": ["HOSP_001", "HOSP_002"], "private": True},
     ],
 }
 
@@ -71,7 +77,12 @@ async def main() -> None:
 
     print("Registering policies on-chain...")
     for spec in PRESETS[preset]:
-        if spec.get("private"):
+        if spec.get("private") and spec.get("set_values") is not None:
+            await register_sensitive_set_policy(
+                store, org_id, agent_id,
+                field=spec["field"], operator=spec["operator"], members=spec["set_values"],
+            )
+        elif spec.get("private"):
             await register_sensitive_policy(
                 store, org_id, agent_id,
                 field=spec["field"], operator=spec["operator"], value_num=spec["value_num"],

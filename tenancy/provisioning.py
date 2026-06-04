@@ -133,6 +133,19 @@ def _eval_numeric(operator: int, lhs: int, rhs: int) -> bool:
     }.get(operator, False)
 
 
+def _eval_doc(doc: dict, field_value) -> bool:
+    """
+    Evaluate a private policy doc against a decision field value.
+
+    Numeric ops use doc['value_num']; set ops (in/not_in) use doc['members'].
+    """
+    op = int(doc["operator"])
+    if op in (OP_IN, OP_NOT_IN):
+        in_set = str(field_value) in doc.get("members", [])
+        return in_set if op == OP_IN else not in_set
+    return _eval_numeric(op, int(field_value), int(doc["value_num"]))
+
+
 async def register_sensitive_policy(
     store: TenantStore,
     org_id: str,
@@ -163,12 +176,45 @@ async def register_sensitive_policy(
     return idx
 
 
+async def register_sensitive_set_policy(
+    store: TenantStore,
+    org_id: str,
+    agent_id: str,
+    *,
+    field: str,
+    operator: int,
+    members: list[str],
+) -> int:
+    """
+    Register a Mode-2 (private) set-membership predicate — a confidential whitelist.
+
+    The member list stays secret: the policy doc (with the members) is encrypted under the
+    org key and stored off-chain; only its sha256 commitment is written on-chain. Membership
+    is checked off-chain. operator must be OP_IN or OP_NOT_IN. Returns the rule index.
+    """
+    if operator not in (OP_IN, OP_NOT_IN):
+        raise ValueError("register_sensitive_set_policy requires OP_IN or OP_NOT_IN")
+    org = store.get_org(org_id)
+    if not org:
+        raise ValueError(f"Org '{org_id}' does not exist")
+
+    doc = {"field": field, "operator": operator, "members": sorted(members)}
+    commitment = policy_commitment(doc)
+    enc_key = parse_hex_key(org["enc_key_hex"])
+    envelope = encrypt_payload(doc, key=enc_key)
+
+    _tx_id, idx = await register_rule(org_id, agent_id, MODE_ATTESTED, 0, 0, field, commitment)
+    store.add_rule(org_id, agent_id, idx, MODE_ATTESTED, 0, 0, field, commitment, json.dumps(envelope))
+    logger.info("Registered Mode-2 (private SET) policy %s/%s idx=%d field=%s", org_id, agent_id, idx, field)
+    return idx
+
+
 def _evaluate_sensitive(rule: dict, field_value, enc_key: bytes) -> bool:
     """Decrypt a Mode-2 rule's policy doc with the org key and evaluate it off-chain."""
     if field_value is None or not rule.get("doc_cipher"):
         return False
     doc = decrypt_payload(json.loads(rule["doc_cipher"]), key=enc_key)
-    return _eval_numeric(int(doc["operator"]), int(field_value), int(doc["value_num"]))
+    return _eval_doc(doc, field_value)
 
 
 def build_check_args(store: TenantStore, org_id: str, agent_id: str, decision_fields: dict) -> dict:
@@ -228,7 +274,7 @@ def reverify_mode2(store: TenantStore, org_id: str, agent_id: str, decision_fiel
             continue
         matches = policy_commitment(doc) == rule["commitment"]
         val = decision_fields.get(rule["field"])
-        recheck = _eval_numeric(int(doc["operator"]), int(val), int(doc["value_num"])) if val is not None else None
+        recheck = _eval_doc(doc, val) if val is not None else None
         results.append({
             "idx": rule["idx"], "field": rule["field"],
             "commitment_matches": matches, "recheck_pass": recheck,
