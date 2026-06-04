@@ -184,6 +184,24 @@ Goal: sensitive policies committed (not revealed) on-chain, enforced off-chain, 
 - **Done when:** a sensitive policy shows only a commitment on-chain/IPFS; the auditor key re-verifies that
   the recorded enforcement was correct; mixed-mode agents (some Mode 1, some Mode 2) mint correctly.
 
+### Phase 6 — STATUS: DONE, verified on testnet
+
+Mode 2 now covers **both** policy shapes, each keeping its secret entirely off-chain (only a
+`sha256` commitment on-chain), enforced off-chain with an attested mint, and re-verifiable with
+the org auditor key (commitment match + re-run):
+
+- **Private threshold** — a secret number, e.g. `risk_tier <= 3` (`register_sensitive_policy`).
+- **Private set / whitelist** — a confidential list, e.g. approved hospitals
+  (`register_sensitive_set_policy`). Members are never on-chain, not even as hashed box keys.
+
+Unified off-chain evaluator `_eval_doc` (numeric + set) backs both enforcement and the
+`/api/verify` `mode2_reverify` section. Verified e2e on testnet (in/out cases) plus edge branches
+(out-of-set fail, wrong key cannot decrypt → no valid re-check). Onboarding presets:
+`lending_private` (private threshold), `insurance_private` (private whitelist).
+
+The only still-deferred policy capability is **non-AND combination logic** (OR / "any N of M"),
+unchanged from the out-of-scope note below.
+
 ---
 
 ## Phase 7 — Tests (FINAL_PHASE §L step 5)
