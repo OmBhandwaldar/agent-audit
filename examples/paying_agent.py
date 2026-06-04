@@ -17,9 +17,12 @@ import base64
 import os
 
 import algosdk
+from dotenv import load_dotenv
 from x402 import x402ClientSync
 from x402.http.clients import x402_requests
 from x402.mechanisms.avm.exact import ExactAvmScheme
+
+load_dotenv()
 
 BASE_URL = os.getenv("AGENTAUDIT_URL", "http://localhost:8000")
 ALGOD_URL = os.getenv("ALGORAND_NODE_URL", "https://testnet-api.algonode.cloud")
@@ -51,9 +54,9 @@ class AlgorandSigner:
 
 
 def main() -> None:
-    mn = os.environ.get("X402_PAYER_MNEMONIC")
+    mn = os.environ.get("X402_PAYER_MNEMONIC") or os.getenv("DEPLOYER_MNEMONIC")
     if not mn:
-        raise SystemExit("Set X402_PAYER_MNEMONIC (25 words) for the paying agent's wallet")
+        raise SystemExit("Set X402_PAYER_MNEMONIC (or DEPLOYER_MNEMONIC in .env)")
 
     sk = algosdk.mnemonic.to_private_key(mn)
     address = algosdk.account.address_from_private_key(sk)
