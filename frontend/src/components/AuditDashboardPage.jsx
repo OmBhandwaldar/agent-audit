@@ -14,6 +14,31 @@ const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs"
 const TX_EXPLORER  = "https://testnet.explorer.perawallet.app/tx"
 const DEMO_AUDITOR_KEY = import.meta.env.VITE_DEMO_AUDITOR_KEY || ""
 
+/* ─── Per-policy provenance chips (parses "pass:onchain|fail:attested") ───────── */
+
+function PolicyChips({ policyResult }) {
+  if (!policyResult) return <span className="font-mono text-[#484847] text-[11px]">—</span>
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {String(policyResult).split("|").map((part, i) => {
+        const [res, prov] = part.split(":")
+        const pass = res === "pass"
+        return (
+          <span key={i}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border"
+            style={{
+              color: pass ? "#26fedc" : "#ff6d8e",
+              borderColor: pass ? "rgba(38,254,220,0.25)" : "rgba(255,109,142,0.25)",
+              background: pass ? "rgba(38,254,220,0.06)" : "rgba(255,109,142,0.06)",
+            }}>
+            {prov || res} {pass ? "✓" : "✗"}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ─── Merkle batch widget ─────────────────────────────────────────────────── */
 
 function BatchWidget({ apiBase, stats, onRefresh }) {
@@ -554,6 +579,7 @@ function VerifyModal({ apiBase, onClose }) {
   const ciphertextEnvelope = decryption.envelope
   const decryptionError   = decryption.error
   const summary           = verifyResult?.record_summary
+  const mode2Reverify     = verifyResult?.mode2_reverify
   const verified          = isAnchored && proofValid
 
   return (
@@ -842,7 +868,7 @@ function VerifyModal({ apiBase, onClose }) {
                   </span>
 
                   <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Policy result</span>
-                  <span className="font-mono text-[#adaaaa]">{summary.policy_result}</span>
+                  <PolicyChips policyResult={summary.policy_result} />
 
                   <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Vendor ID</span>
                   <span className="font-mono text-[#adaaaa]">{summary.vendor_id}</span>
@@ -864,6 +890,33 @@ function VerifyModal({ apiBase, onClose }) {
                 </>
               )}
             </div>
+
+            {/* Mode-2 (private policy) auditor re-check — only when the key unlocked it */}
+            {Array.isArray(mode2Reverify) && mode2Reverify.length > 0 && (
+              <div className="mt-3 rounded-lg border border-[#2a2a2a] bg-[#0e0e0e] p-3">
+                <span className="text-[10px] font-label uppercase tracking-wider text-[#adaaaa]">
+                  Private policy re-check (Mode 2)
+                </span>
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {mode2Reverify.map((m, i) => (
+                    <div key={i} className="flex items-center gap-2.5 text-[11px] font-mono flex-wrap">
+                      <span className="text-[#767575]">{m.field}</span>
+                      <span style={{ color: m.commitment_matches ? "#26fedc" : "#ff6d8e" }}>
+                        commitment {m.commitment_matches ? "matches ✓" : "mismatch ✗"}
+                      </span>
+                      <span style={{ color: m.recheck_pass === true ? "#26fedc" : m.recheck_pass === false ? "#ff6d8e" : "#767575" }}>
+                        re-check {m.recheck_pass === true ? "pass ✓" : m.recheck_pass === false ? "fail ✗" : "n/a"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[10px] text-[#484847] leading-relaxed">
+                  The confidential policy is decrypted with the auditor key, confirmed to hash to the
+                  on-chain commitment, and re-evaluated — proving the decision was enforced correctly
+                  without the policy ever being public.
+                </p>
+              </div>
+            )}
 
             {/* Encrypted blob preview + decrypt panel (only when not yet decrypted) */}
             {isAnchored && !decryptedOk && ciphertextEnvelope && (

@@ -20,6 +20,29 @@ function truncate(str, max = 20) {
   return str.slice(0, max) + "…"
 }
 
+/* Per-policy provenance chips: parses "pass:onchain|fail:attested" into pills. */
+function PolicyChips({ policyResult }) {
+  if (!policyResult) return null
+  return (
+    <div className="flex flex-wrap gap-1">
+      {String(policyResult).split("|").map((part, i) => {
+        const [res, prov] = part.split(":")
+        const pass = res === "pass"
+        return (
+          <span key={i}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono border"
+            style={{
+              color: pass ? "#26fedc" : "#ff4f00",
+              borderColor: pass ? "rgba(38,254,220,0.2)" : "rgba(255,79,0,0.2)",
+            }}>
+            {prov || res} {pass ? "✓" : "✗"}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ─── Audit summary card ─────────────────────────────────────────────────── */
 
 function AuditSummary({ audit }) {
@@ -46,7 +69,7 @@ function AuditSummary({ audit }) {
           </span>
           {approved ? "Approved" : "Rejected"}
         </span>
-        <span className="font-mono text-[10px] text-[#484847]">{audit.policy_result}</span>
+        <PolicyChips policyResult={audit.policy_result} />
         {audit.encrypted && (
           <span className="inline-flex items-center gap-1 text-[10px] font-mono text-[#adaaaa]
             border border-[#2a2a2a] px-2 py-0.5 rounded-full">

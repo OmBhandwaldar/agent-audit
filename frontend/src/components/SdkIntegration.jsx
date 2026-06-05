@@ -27,6 +27,28 @@ result = audit.audit(
 # result: action_id, decision (on-chain), asa_minted, policy_result, ipfs_cid, algorand_tx_id`,
   },
   {
+    id: "x402",
+    title: "Python SDK — x402 (pay-per-call)",
+    lang: "python",
+    description: "Same agent, same call — it pays $0.01 USDC per decision instead of a subscription.",
+    code: `from agentaudit import AuditClient
+
+# Pay-per-call: the agent pays $0.01 USDC per decision (no API key)
+audit = AuditClient(
+    org_id="medico",
+    x402_mnemonic="<payer wallet mnemonic>",
+    base_url="https://your-agentaudit-host",
+)
+
+result = audit.audit(
+    agent_id="claims_agent",
+    action="approve_claim",
+    decision="approved",
+    fields={"claim_amount": 150000, "hospital": "HOSP_001"},
+)
+# the SDK auto-pays $0.01 USDC, the facilitator settles, then the audit runs`,
+  },
+  {
     id: "rest_api",
     title: "REST API",
     lang: "http",

@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { label: "Features",     to: null,            hash: true  },
   { label: "How it Works", to: "#how-it-works",  hash: true  },
   { label: "Dashboard",    to: "/dashboard",     hash: false },
+  { label: "Integrate",    to: "/integrate",     hash: false },
 ]
 
 function NavBar({ onEnterApp }) {
