@@ -1,29 +1,40 @@
 """
-Example: a standalone insurance claims agent in a *different* company, using the
-AgentAudit SDK to make its decisions independently verifiable.
+Example: a standalone insurance claims agent (a different company) using the AgentAudit SDK.
 
-This proves the platform is decision-agnostic: the same audit layer that handles a
-procurement agent handles an insurance claims agent, with no change to AgentAudit.
+The SAME agent logs every decision to AgentAudit. Billing is a config choice, not a
+separate agent:
+  - subscription:  set AGENTAUDIT_API_KEY
+  - pay-per-call:  set AGENTAUDIT_X402_MNEMONIC (+ AGENTAUDIT_ORG_ID) — the agent pays
+                   $0.01 USDC per claim it logs.
 
 Prerequisites:
-  1. Onboard an insurer org:
-       python scripts/onboard_org.py insurer claims_agent insurance
-     (prints an API key — copy it)
-  2. Run the backend:
-       uvicorn api.main:app --port 8000
-  3. Run this example:
+  1. Onboard the insurer org:  python scripts/onboard_org.py medico claims_agent insurance_private
+  2. Run the backend:          uvicorn api.main:app --port 8000
+     (for x402 also: X402_ENABLED=true X402_RECIPIENT=<addr> ...)
+  3. Run this example with one of:
        AGENTAUDIT_API_KEY=aa_... python examples/insurance_agent.py
+       AGENTAUDIT_ORG_ID=medico AGENTAUDIT_X402_MNEMONIC="<payer 25 words>" python examples/insurance_agent.py
 """
 
 import os
 
 from agentaudit import AuditClient
 
-API_KEY = os.environ.get("AGENTAUDIT_API_KEY", "")
 BASE_URL = os.getenv("AGENTAUDIT_URL", "http://localhost:8000")
 AGENT_ID = os.getenv("AGENTAUDIT_AGENT_ID", "claims_agent")
 
-audit = AuditClient(api_key=API_KEY, base_url=BASE_URL)
+
+def _make_client() -> AuditClient:
+    x402_mn = os.getenv("AGENTAUDIT_X402_MNEMONIC")
+    if x402_mn:
+        org_id = os.getenv("AGENTAUDIT_ORG_ID", "medico")
+        print(f"[billing: x402 pay-per-call — org={org_id}, $0.01 USDC per claim]")
+        return AuditClient(base_url=BASE_URL, org_id=org_id, x402_mnemonic=x402_mn)
+    api_key = os.getenv("AGENTAUDIT_API_KEY")
+    if api_key:
+        print("[billing: subscription / API key]")
+        return AuditClient(api_key=api_key, base_url=BASE_URL)
+    raise SystemExit("Set AGENTAUDIT_API_KEY (subscription) or AGENTAUDIT_X402_MNEMONIC + AGENTAUDIT_ORG_ID (x402)")
 
 
 def decide_claim(claim_amount: int, hospital: str) -> tuple[str, list]:
@@ -37,15 +48,8 @@ def decide_claim(claim_amount: int, hospital: str) -> tuple[str, list]:
 
 
 def main() -> None:
-    if not API_KEY:
-        raise SystemExit("Set AGENTAUDIT_API_KEY (from onboard_org.py insurer claims_agent insurance)")
-
-    cases = [
-        (150_000, "HOSP_001"),  # within limit + whitelisted hospital -> approved
-        (150_000, "HOSP_999"),  # hospital not whitelisted -> rejected on-chain
-        (250_000, "HOSP_001"),  # over the claim limit -> rejected on-chain
-    ]
-    for claim_amount, hospital in cases:
+    audit = _make_client()
+    for claim_amount, hospital in [(150_000, "HOSP_001"), (150_000, "HOSP_999"), (250_000, "HOSP_001")]:
         agent_decision, trace = decide_claim(claim_amount, hospital)
         result = audit.audit(
             agent_id=AGENT_ID,
