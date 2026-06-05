@@ -25,14 +25,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from algorand.contract_client_v2 import get_anchor_root
+from algorand.contract_client_v2 import MODE_ONCHAIN, OP_IN, OP_NOT_IN, get_anchor_root
 from batcher.anchor import flush_and_anchor
 from batcher.merkle import verify_proof
 from batcher.store import BatchStore
 from crypto.payload import decrypt_payload, parse_hex_key
 from sdk.audit_flow_v2 import run_audit_flow_v2, run_chat_flow_v2, run_ingest_v2
 from tenancy.store import TenantStore
-from tenancy.provisioning import reverify_mode2
+from tenancy.provisioning import (
+    create_org,
+    register_agent,
+    register_policy,
+    register_sensitive_policy,
+    register_sensitive_set_policy,
+    reverify_mode2,
+)
 from api.x402_gate import install_x402
 
 logging.basicConfig(level=logging.INFO)
@@ -314,6 +321,68 @@ async def ingest_audit_x402(req: X402IngestRequest) -> dict:
     except Exception as e:
         logger.error("x402 ingest failed: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PolicySpec(BaseModel):
+    """One policy in an onboarding request."""
+
+    field: str = Field(..., min_length=1)
+    operator: int = Field(..., ge=1, le=8, description="1<,2<=,3>,4>=,5==,6!=,7 in,8 not_in")
+    value_num: int = 0
+    set_values: list[str] = Field(default_factory=list)
+    private: bool = False  # True = Mode 2 (encrypted off-chain, commitment-only)
+
+
+class OnboardRequest(BaseModel):
+    """Request body for POST /v1/onboard (self-serve provisioning)."""
+
+    org_id: str = Field(..., min_length=1)
+    agent_id: str = Field(..., min_length=1)
+    billing_mode: str = Field(default="api_key", description="api_key (subscription) or x402 (pay-per-call)")
+    policies: list[PolicySpec] = Field(default_factory=list)
+
+
+@app.post("/v1/onboard")
+async def onboard(req: OnboardRequest) -> dict:
+    """
+    Self-serve onboarding: create the org (plan), register an agent, register its policy set
+    on-chain (public Mode-1 + private Mode-2), and return the API key + encryption key (once)
+    plus the registered rules. Demo endpoint — in production this is gated to the platform.
+    """
+    if tenant_store.get_org(req.org_id):
+        raise HTTPException(status_code=409, detail=f"Org '{req.org_id}' already exists")
+    logger.info("Onboard: org=%s agent=%s plan=%s policies=%d", req.org_id, req.agent_id, req.billing_mode, len(req.policies))
+    try:
+        creds = create_org(tenant_store, req.org_id, billing_mode=req.billing_mode)
+        register_agent(tenant_store, req.org_id, req.agent_id)
+        for p in req.policies:
+            is_set = p.operator in (OP_IN, OP_NOT_IN)
+            if p.private and is_set:
+                await register_sensitive_set_policy(
+                    tenant_store, req.org_id, req.agent_id, field=p.field, operator=p.operator, members=p.set_values
+                )
+            elif p.private:
+                await register_sensitive_policy(
+                    tenant_store, req.org_id, req.agent_id, field=p.field, operator=p.operator, value_num=p.value_num
+                )
+            else:
+                await register_policy(
+                    tenant_store, req.org_id, req.agent_id, field=p.field, mode=MODE_ONCHAIN,
+                    operator=p.operator, value_num=p.value_num, set_values=(p.set_values or None),
+                )
+    except Exception as e:
+        logger.error("Onboard failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "org_id": req.org_id,
+        "agent_id": req.agent_id,
+        "billing_mode": req.billing_mode,
+        "api_key": creds["api_key"],
+        "encryption_key": creds["encryption_key"],
+        "fields": [p.field for p in req.policies],
+        "rules": tenant_store.get_rules(req.org_id, req.agent_id),
+    }
 
 
 @app.get("/api/verify")

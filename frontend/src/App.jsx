@@ -3,6 +3,7 @@ import ChatAgent from "./components/ChatAgent"
 import LandingPage from "./components/LandingPage"
 import AuditDashboardPage from "./components/AuditDashboardPage"
 import SdkIntegration from "./components/SdkIntegration"
+import OnboardPage from "./components/OnboardPage"
 import "./index.css"
 
 // Phase 2: point at the locally running FastAPI backend with v2 endpoints.
@@ -72,6 +73,7 @@ function App() {
       <Route path="/"          element={<LandingGate />} />
       <Route path="/app"       element={<AppShell />} />
       <Route path="/dashboard" element={<AuditDashboardPage apiBase={API_BASE} />} />
+      <Route path="/onboard"   element={<OnboardPage apiBase={API_BASE} />} />
       <Route path="/integrate" element={<IntegratePage />} />
       <Route path="*"          element={<LandingGate />} />
     </Routes>
