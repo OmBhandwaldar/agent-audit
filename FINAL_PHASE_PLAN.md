@@ -158,7 +158,10 @@ Goal: provisioned agent pays $0.01 USDC per audit. Highest-risk phase — flag +
       (amount, USDC testnet ASA, recipient), verify payment, then run the audit. The x402 request still
       declares `org_id`, so the org's key + policies apply (Flavor 1, FINAL_PHASE §G).
 - [ ] Testnet USDC + facilitator/wrap setup; recipient = the AgentAudit wallet.
-- [ ] A paying-agent demo script (or extend `examples/insurance_agent.py`) using the x402 client to auto-pay.
+- [x] x402 pay-per-call is folded into the SDK (`AuditClient`), not a separate payer: any working
+      agent constructs `AuditClient(org_id=..., x402_mnemonic=...)` and pays $0.01 USDC per decision.
+      `examples/insurance_agent.py` runs in subscription OR x402 mode (same agent, billing is config).
+      Verified live: the insurance agent paid per claim (payer USDC dropped 3x$0.01).
 - [ ] Put x402 **behind a flag** so the API-key path stays the safe default.
 - [ ] **Record a backup demo video of the x402 flow** in case live payment is flaky.
 - **Done when:** an agent with no API key (but a known org) hits `/v1/audit`, auto-pays USDC, and the audit
