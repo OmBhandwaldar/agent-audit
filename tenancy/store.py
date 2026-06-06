@@ -164,3 +164,10 @@ class TenantStore:
                 (org_id, agent_id),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def delete_org(self, org_id: str) -> None:
+        """Delete an org with its agents + rules (used to roll back a failed onboarding)."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM agent_rules WHERE org_id = ?", (org_id,))
+            conn.execute("DELETE FROM agents WHERE org_id = ?", (org_id,))
+            conn.execute("DELETE FROM orgs WHERE org_id = ?", (org_id,))

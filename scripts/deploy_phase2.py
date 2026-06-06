@@ -256,7 +256,8 @@ def main() -> None:
     update_env("POLICY_APP_ID", str(policy_app_id))
 
     print("\n── Funding PolicyContract for box storage + ASA opt-in ──")
-    fund_app_account(client, deployer_key, deployer_address, policy_app_id, microalgos=1_000_000)
+    # 3 ALGO headroom — each onboarded org/agent/rule adds box MBR; top up later with fund_policy.py
+    fund_app_account(client, deployer_key, deployer_address, policy_app_id, microalgos=3_000_000)
 
     print("\n═══ PolicyContract Deploy Complete ═══")
     print(f"POLICY_APP_ID = {policy_app_id}")

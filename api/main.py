@@ -372,6 +372,8 @@ async def onboard(req: OnboardRequest) -> dict:
                 )
     except Exception as e:
         logger.error("Onboard failed: %s", e)
+        # Roll back the half-provisioned org so the name is free to retry.
+        tenant_store.delete_org(req.org_id)
         raise HTTPException(status_code=500, detail=str(e))
 
     return {
