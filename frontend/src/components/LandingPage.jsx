@@ -233,23 +233,23 @@ const INSTALL_TABS = ["API", "SDK", "Middleware/Decorator"]
 
 const INSTALL_COMMANDS = {
   "API": {
-    windows: `curl -X POST https://api.agentaudit.io/v1/audit ^^\n  -H "Authorization: Bearer <token>" ^^\n  -d "{ \\"amount\\": 3000, \\"vendor_id\\": \\"VENDOR_001\\" }"`,
-    unix:    `curl -X POST https://api.agentaudit.io/v1/audit \\\n  -H "Authorization: Bearer <token>" \\\n  -d '{ "amount": 3000, "vendor_id": "VENDOR_001" }'`,
+    windows: `curl -X POST https://api.agentaudit.io/v1/audit ^^\n  -H "Authorization: Bearer aa_<your_api_key>" ^^\n  -H "Content-Type: application/json" ^^\n  -d "{ \\"agent_id\\": \\"agt_<your_agent>\\", \\"action\\": \\"<action_performed>\\", \\"decision\\": \\"<agent_decision>\\", \\"fields\\": { \\"field_1\\": <value_1>, \\"field_2\\": <value_2> } }"`,
+    unix:    `curl -X POST https://api.agentaudit.io/v1/audit \\\n  -H "Authorization: Bearer aa_<your_api_key>" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "agent_id": "agt_<your_agent>",\n    "action": "<action_performed>",\n    "decision": "<agent_decision>",\n    "fields": { "field_1": <value_1>, "field_2": <value_2> }\n  }'`,
   },
   "SDK": {
-    windows: `pip install agentaudit`,
-    unix:    `pip install agentaudit`,
+    windows: `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\naudit.audit(\n    agent_id="agt_<your_agent>",\n    action="<action_performed>",\n    decision="<agent_decision>",\n    fields={"field_1": <value_1>, "field_2": <value_2>},\n)`,
+    unix:    `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\naudit.audit(\n    agent_id="agt_<your_agent>",\n    action="<action_performed>",\n    decision="<agent_decision>",\n    fields={"field_1": <value_1>, "field_2": <value_2>},\n)`,
   },
   "Middleware/Decorator": {
-    windows: `from agentaudit import audit_action\n\n@audit_action(policy="limit_5000", vendor_id="VENDOR_001")\ndef approve_payment(amount: int) -> str:\n    return "approved" if amount < 5000 else "rejected"`,
-    unix:    `from agentaudit import audit_action\n\n@audit_action(policy="limit_5000", vendor_id="VENDOR_001")\ndef approve_payment(amount: int) -> str:\n    return "approved" if amount < 5000 else "rejected"`,
+    windows: `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\n@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")\ndef decide(...):\n    # your agent's own logic\n    return {"decision": "<agent_decision>", "fields": {"field_1": <value_1>, "field_2": <value_2>}}`,
+    unix:    `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\n@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")\ndef decide(...):\n    # your agent's own logic\n    return {"decision": "<agent_decision>", "fields": {"field_1": <value_1>, "field_2": <value_2>}}`,
   },
 }
 
 const INSTALL_COMMENTS = {
-  "API":                  "# Hit the REST API directly from any language or tool.",
-  "SDK":                  "# Install the Python SDK — LangChain + Algorand + IPFS wired in.",
-  "Middleware/Decorator": "# Wrap any function — audit records written automatically on every call.",
+  "API":                  "# Hit the REST API directly from any language — Bearer your API key.",
+  "SDK":                  "# pip install agentaudit — then log every decision with the client.",
+  "Middleware/Decorator": "# Wrap your decision function — audited automatically on every call.",
 }
 
 function InstallSection() {
