@@ -177,6 +177,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
             "agent_type_id": result["agent_type_id"],
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
+            "policies": _policy_breakdown(result.get("org_id"), result.get("agent_id"), result["policy_result"]),
             "asa_minted": result["asa_minted"],
             "ipfs_cid": result["ipfs_cid"],
             "algorand_tx_id": result["algorand_tx_id"],
@@ -223,6 +224,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "agent_type_id": result["agent_type_id"],
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
+            "policies": _policy_breakdown(result.get("org_id"), result.get("agent_id"), result["policy_result"]),
             "asa_minted": result["asa_minted"],
             "ipfs_cid": result["ipfs_cid"],
             "algorand_tx_id": result["algorand_tx_id"],
@@ -279,6 +281,7 @@ async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> 
             "agent_type_id": tenant_store.get_agent_display_name(org_id, req.agent_id) or req.agent_id,
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
+            "policies": _policy_breakdown(result.get("org_id"), result.get("agent_id"), result["policy_result"]),
             "asa_minted": result["asa_minted"],
             "ipfs_cid": result["ipfs_cid"],
             "algorand_tx_id": result["algorand_tx_id"],
@@ -331,6 +334,7 @@ async def ingest_audit_x402(req: X402IngestRequest) -> dict:
             "vendor_id": req.fields.get("vendor", ""),
             "agent_type_id": tenant_store.get_agent_display_name(req.org_id, req.agent_id) or req.agent_id,
             "policy_checks": result["policy_checks"], "policy_result": result["policy_result"],
+            "policies": _policy_breakdown(result.get("org_id"), result.get("agent_id"), result["policy_result"]),
             "asa_minted": result["asa_minted"], "ipfs_cid": result["ipfs_cid"],
             "algorand_tx_id": result["algorand_tx_id"], "timestamp": int(time.time()),
         })
@@ -707,6 +711,24 @@ def _reverify_mode2(record: dict, x_auditor_key: str | None) -> list | None:
     return results or None
 
 
+def _policy_breakdown(org_id: str | None, agent_id: str | None, policy_result: str | None) -> list | None:
+    """
+    Label each policy's pass/fail with its field name, for the dashboard + verify chips.
+
+    Zips the positional policy_result ("pass:onchain|fail:attested") with the agent's
+    ordered rules. Returns [{field, result: "pass"/"fail", layer: "onchain"/"attested"}] or None.
+    """
+    if not policy_result or not org_id or not agent_id:
+        return None
+    rules = tenant_store.get_rules(org_id, agent_id)
+    out = []
+    for i, part in enumerate(policy_result.split("|")):
+        res, _, layer = part.partition(":")
+        field = rules[i]["field"] if i < len(rules) else f"rule_{i}"
+        out.append({"field": field, "result": "pass" if res == "pass" else "fail", "layer": layer or "onchain"})
+    return out
+
+
 def _build_record_summary(record: dict) -> dict:
     """Extract the fields shown in verify responses without the full record blob."""
     return {
@@ -714,6 +736,7 @@ def _build_record_summary(record: dict) -> dict:
         "amount": record.get("amount"),
         "vendor_id": record.get("vendor_id"),
         "policy_result": record.get("policy_result"),
+        "policies": _policy_breakdown(record.get("org_id"), record.get("agent_id"), record.get("policy_result")),
         "asa_minted": record.get("asa_minted"),
         "policy_tx_id": record.get("policy_tx_id"),
         "ipfs_cid": record.get("ipfs_cid"),

@@ -16,13 +16,19 @@ const DEMO_AUDITOR_KEY = import.meta.env.VITE_DEMO_AUDITOR_KEY || ""
 
 /* ─── Per-policy provenance chips (parses "pass:onchain|fail:attested") ───────── */
 
-function PolicyChips({ policyResult }) {
-  if (!policyResult) return <span className="font-mono text-[#484847] text-[11px]">—</span>
+function PolicyChips({ policies, policyResult }) {
+  // Prefer the field-labelled breakdown [{field, result, layer}]; fall back to the
+  // positional policy_result string ("pass:onchain|fail:attested") when it's absent.
+  const items = policies && policies.length
+    ? policies
+    : (policyResult
+        ? String(policyResult).split("|").map((part) => ({ field: null, result: part.split(":")[0] === "pass" ? "pass" : "fail" }))
+        : [])
+  if (!items.length) return <span className="font-mono text-[#484847] text-[11px]">—</span>
   return (
     <div className="flex flex-wrap gap-1.5">
-      {String(policyResult).split("|").map((part, i) => {
-        const [res, prov] = part.split(":")
-        const pass = res === "pass"
+      {items.map((p, i) => {
+        const pass = p.result === "pass"
         return (
           <span key={i}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border"
@@ -31,7 +37,7 @@ function PolicyChips({ policyResult }) {
               borderColor: pass ? "rgba(38,254,220,0.25)" : "rgba(255,109,142,0.25)",
               background: pass ? "rgba(38,254,220,0.06)" : "rgba(255,109,142,0.06)",
             }}>
-            {prov || res} {pass ? "✓" : "✗"}
+            {p.field ? `${p.field}: ${p.result}` : p.result}
           </span>
         )
       })}
@@ -342,6 +348,11 @@ function AuditRow({ audit, copied, onCopy }) {
       {/* Policy decision */}
       <td className="px-5 py-3.5">
         <DecisionBadge decision={audit.decision} />
+        {/* {audit.policies && audit.policies.length > 0 && (
+          <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+            <PolicyChips policies={audit.policies} />
+          </div>
+        )} */}
       </td>
 
       {/* IPFS */}
@@ -868,7 +879,7 @@ function VerifyModal({ apiBase, onClose }) {
                   </span>
 
                   <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Policy result</span>
-                  <PolicyChips policyResult={summary.policy_result} />
+                  <PolicyChips policies={summary.policies} policyResult={summary.policy_result} />
 
                   <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Vendor ID</span>
                   <span className="font-mono text-[#adaaaa]">{summary.vendor_id}</span>
