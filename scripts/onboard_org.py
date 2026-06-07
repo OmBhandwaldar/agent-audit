@@ -1,11 +1,12 @@
 """
 Onboard an organisation (the one-time human provisioning step).
 
-Issues an API key + a per-org encryption key, registers an agent, and writes the
-agent's policy set both on-chain (PolicyContract) and to the tenant store.
+Issues an API key + a per-org encryption key, registers an agent (the system issues an
+opaque agent_id; the arg is just a human display name), and writes the agent's policy set
+both on-chain (PolicyContract) and to the tenant store.
 
 Usage:
-  python scripts/onboard_org.py [org_id] [agent_id] [preset]
+  python scripts/onboard_org.py [org_id] [agent_name] [preset]
 
 preset in {payment (default), insurance, lending} — the policy set to register:
   payment   : amount < 5000        AND vendor in {VENDOR_001, VENDOR_002}
@@ -70,7 +71,7 @@ PRESETS = {
 
 async def main() -> None:
     org_id = sys.argv[1] if len(sys.argv) > 1 else "acme"
-    agent_id = sys.argv[2] if len(sys.argv) > 2 else "payment_agent"
+    agent_name = sys.argv[2] if len(sys.argv) > 2 else "Payment Agent"
     preset = sys.argv[3] if len(sys.argv) > 3 else "payment"
 
     if preset not in PRESETS:
@@ -82,10 +83,11 @@ async def main() -> None:
         print(f"Org '{org_id}' already exists. Choose a different org_id.")
         sys.exit(1)
 
-    print(f"Onboarding {org_id} / {agent_id}  (preset: {preset}) ...\n")
+    print(f"Onboarding {org_id} / {agent_name!r}  (preset: {preset}) ...\n")
 
     creds = create_org(store, org_id)
-    register_agent(store, org_id, agent_id)
+    # The system issues the opaque agent_id; agent_name is just a human label.
+    agent_id = register_agent(store, org_id, agent_name)
 
     print("Registering policies on-chain...")
     for spec in PRESETS[preset]:
@@ -111,7 +113,8 @@ async def main() -> None:
 
     print("\n=== Onboarded ===")
     print(f"  org_id:         {creds['org_id']}")
-    print(f"  agent_id:       {agent_id}")
+    print(f"  agent_id:       {agent_id}        (system-issued — pass this to the SDK)")
+    print(f"  agent name:     {agent_name}")
     print(f"  preset:         {preset}")
     print(f"  API key:        {creds['api_key']}        (save this — shown once)")
     print(f"  Encryption key: {creds['encryption_key']}")

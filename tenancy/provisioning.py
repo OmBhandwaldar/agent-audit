@@ -36,6 +36,11 @@ def _generate_api_key() -> str:
     return "aa_" + secrets.token_urlsafe(24)
 
 
+def _generate_agent_id() -> str:
+    """Generate a system-issued opaque agent id — the on-chain namespace key + SDK identifier."""
+    return "agt_" + secrets.token_urlsafe(8)
+
+
 def _hash_api_key(api_key: str) -> str:
     """SHA256 hash of an API key, for storage and lookup."""
     return hashlib.sha256(api_key.encode()).hexdigest()
@@ -67,12 +72,19 @@ def create_org(store: TenantStore, org_id: str, billing_mode: str = "api_key") -
     return {"org_id": org_id, "api_key": api_key, "encryption_key": enc_key_hex, "billing_mode": billing_mode}
 
 
-def register_agent(store: TenantStore, org_id: str, agent_id: str) -> None:
-    """Register an agent under an org."""
+def register_agent(store: TenantStore, org_id: str, display_name: str = "") -> str:
+    """
+    Register an agent under an org. The system issues an opaque agent_id (agt_...) — the
+    immutable identity used on-chain and by the SDK. display_name is human metadata only.
+
+    Returns the issued agent_id.
+    """
     if not store.get_org(org_id):
         raise ValueError(f"Org '{org_id}' does not exist")
-    store.add_agent(org_id, agent_id)
-    logger.info("Registered agent %s/%s", org_id, agent_id)
+    agent_id = _generate_agent_id()
+    store.add_agent(org_id, agent_id, display_name)
+    logger.info("Registered agent %s/%s (display=%r)", org_id, agent_id, display_name)
+    return agent_id
 
 
 async def register_policy(

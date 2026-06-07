@@ -276,7 +276,7 @@ async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> 
             "agent_decision": result["agent_decision"],
             "amount": req.fields.get("amount", 0),
             "vendor_id": req.fields.get("vendor", ""),
-            "agent_type_id": req.agent_id,
+            "agent_type_id": tenant_store.get_agent_display_name(org_id, req.agent_id) or req.agent_id,
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
             "asa_minted": result["asa_minted"],
@@ -328,7 +328,8 @@ async def ingest_audit_x402(req: X402IngestRequest) -> dict:
         recent_audits.appendleft({
             "action_id": result["action_id"], "decision": result["decision"],
             "agent_decision": result["agent_decision"], "amount": req.fields.get("amount", 0),
-            "vendor_id": req.fields.get("vendor", ""), "agent_type_id": req.agent_id,
+            "vendor_id": req.fields.get("vendor", ""),
+            "agent_type_id": tenant_store.get_agent_display_name(req.org_id, req.agent_id) or req.agent_id,
             "policy_checks": result["policy_checks"], "policy_result": result["policy_result"],
             "asa_minted": result["asa_minted"], "ipfs_cid": result["ipfs_cid"],
             "algorand_tx_id": result["algorand_tx_id"], "timestamp": int(time.time()),
@@ -354,7 +355,7 @@ class OnboardRequest(BaseModel):
     """Request body for POST /v1/onboard (self-serve provisioning)."""
 
     org_id: str = Field(..., min_length=1)
-    agent_id: str = Field(..., min_length=1)
+    agent_name: str = Field(..., min_length=1, description="Human label for the agent; the system issues the opaque agent_id")
     billing_mode: str = Field(default="api_key", description="api_key (subscription) or x402 (pay-per-call)")
     policies: list[PolicySpec] = Field(default_factory=list)
 
@@ -368,23 +369,24 @@ async def onboard(req: OnboardRequest) -> dict:
     """
     if tenant_store.get_org(req.org_id):
         raise HTTPException(status_code=409, detail=f"Org '{req.org_id}' already exists")
-    logger.info("Onboard: org=%s agent=%s plan=%s policies=%d", req.org_id, req.agent_id, req.billing_mode, len(req.policies))
+    logger.info("Onboard: org=%s agent=%s plan=%s policies=%d", req.org_id, req.agent_name, req.billing_mode, len(req.policies))
     try:
         creds = create_org(tenant_store, req.org_id, billing_mode=req.billing_mode)
-        register_agent(tenant_store, req.org_id, req.agent_id)
+        # The system issues the opaque agent_id; req.agent_name is human metadata.
+        agent_id = register_agent(tenant_store, req.org_id, req.agent_name)
         for p in req.policies:
             is_set = p.operator in (OP_IN, OP_NOT_IN)
             if p.private and is_set:
                 await register_sensitive_set_policy(
-                    tenant_store, req.org_id, req.agent_id, field=p.field, operator=p.operator, members=p.set_values
+                    tenant_store, req.org_id, agent_id, field=p.field, operator=p.operator, members=p.set_values
                 )
             elif p.private:
                 await register_sensitive_policy(
-                    tenant_store, req.org_id, req.agent_id, field=p.field, operator=p.operator, value_num=p.value_num
+                    tenant_store, req.org_id, agent_id, field=p.field, operator=p.operator, value_num=p.value_num
                 )
             else:
                 await register_policy(
-                    tenant_store, req.org_id, req.agent_id, field=p.field, mode=MODE_ONCHAIN,
+                    tenant_store, req.org_id, agent_id, field=p.field, mode=MODE_ONCHAIN,
                     operator=p.operator, value_num=p.value_num, set_values=(p.set_values or None),
                 )
     except Exception as e:
@@ -395,12 +397,13 @@ async def onboard(req: OnboardRequest) -> dict:
 
     return {
         "org_id": req.org_id,
-        "agent_id": req.agent_id,
+        "agent_id": agent_id,          # system-issued opaque id — pass this to the SDK
+        "agent_name": req.agent_name,  # human display name
         "billing_mode": req.billing_mode,
         "api_key": creds["api_key"],
         "encryption_key": creds["encryption_key"],
         "fields": [p.field for p in req.policies],
-        "rules": tenant_store.get_rules(req.org_id, req.agent_id),
+        "rules": tenant_store.get_rules(req.org_id, agent_id),
     }
 
 

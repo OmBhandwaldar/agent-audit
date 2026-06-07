@@ -31,9 +31,10 @@ CREATE TABLE IF NOT EXISTS orgs (
 );
 
 CREATE TABLE IF NOT EXISTS agents (
-    org_id     TEXT NOT NULL,
-    agent_id   TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
+    org_id       TEXT NOT NULL,
+    agent_id     TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,
     PRIMARY KEY (org_id, agent_id)
 );
 
@@ -66,6 +67,10 @@ class TenantStore:
             cols = [r[1] for r in conn.execute("PRAGMA table_info(agent_rules)").fetchall()]
             if "doc_cipher" not in cols:
                 conn.execute("ALTER TABLE agent_rules ADD COLUMN doc_cipher TEXT NOT NULL DEFAULT ''")
+            # Migration: add display_name to agents for DBs created before system-issued ids.
+            agent_cols = [r[1] for r in conn.execute("PRAGMA table_info(agents)").fetchall()]
+            if "display_name" not in agent_cols:
+                conn.execute("ALTER TABLE agents ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
@@ -112,12 +117,12 @@ class TenantStore:
 
     # -- agents -------------------------------------------------------------
 
-    def add_agent(self, org_id: str, agent_id: str) -> None:
-        """Register an agent under an org (idempotent)."""
+    def add_agent(self, org_id: str, agent_id: str, display_name: str = "") -> None:
+        """Register an agent under an org (idempotent). display_name is human metadata only."""
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO agents (org_id, agent_id, created_at) VALUES (?, ?, ?)",
-                (org_id, agent_id, int(time.time())),
+                "INSERT OR IGNORE INTO agents (org_id, agent_id, display_name, created_at) VALUES (?, ?, ?, ?)",
+                (org_id, agent_id, display_name, int(time.time())),
             )
 
     def list_agents(self, org_id: str) -> list[str]:
@@ -125,6 +130,15 @@ class TenantStore:
         with self._connect() as conn:
             rows = conn.execute("SELECT agent_id FROM agents WHERE org_id = ? ORDER BY created_at", (org_id,)).fetchall()
         return [r["agent_id"] for r in rows]
+
+    def get_agent_display_name(self, org_id: str, agent_id: str) -> str | None:
+        """Return the human display name for an agent, or None if unknown."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT display_name FROM agents WHERE org_id = ? AND agent_id = ?",
+                (org_id, agent_id),
+            ).fetchone()
+        return row["display_name"] if row else None
 
     # -- rules --------------------------------------------------------------
 
