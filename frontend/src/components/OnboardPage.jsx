@@ -60,7 +60,7 @@ ${fieldLines}
 
 function OnboardPage({ apiBase }) {
   const [orgId, setOrgId]   = useState("")
-  const [agentId, setAgentId] = useState("")
+  const [agentId, setAgentId] = useState("procurement_agent")
   const [billing, setBilling] = useState("api_key")  // "api_key" | "x402"
   const [policies, setPolicies] = useState([
     { field: "amount", operator: 1, value: "5000", private: false },

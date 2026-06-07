@@ -255,6 +255,15 @@ async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> 
     the org's key, policy-checked, queued for batch anchoring).
     """
     org_id = org["org_id"]
+    if not tenant_store.get_rules(org_id, req.agent_id):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No policy registered for agent '{req.agent_id}' under org '{org_id}'. "
+                "The agent_id in the audit call must match the agent you onboarded. "
+                f"Onboard a policy for '{req.agent_id}' first."
+            ),
+        )
     logger.info("Ingest: org=%s agent=%s action=%s", org_id, req.agent_id, req.action)
     try:
         result = await run_ingest_v2(
@@ -302,6 +311,14 @@ async def ingest_audit_x402(req: X402IngestRequest) -> dict:
     org = tenant_store.get_org(req.org_id)
     if not org:
         raise HTTPException(status_code=404, detail=f"Unknown org '{req.org_id}'")
+    if not tenant_store.get_rules(req.org_id, req.agent_id):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No policy registered for agent '{req.agent_id}' under org '{req.org_id}'. "
+                "The agent_id in the audit call must match the agent you onboarded."
+            ),
+        )
     logger.info("x402 ingest: org=%s agent=%s action=%s", req.org_id, req.agent_id, req.action)
     try:
         result = await run_ingest_v2(

@@ -35,6 +35,18 @@ PRESETS = {
         {"field": "amount", "operator": OP_LT, "value_num": 5000},
         {"field": "vendor", "operator": OP_IN, "set_values": ["VENDOR_001", "VENDOR_002"]},
     ],
+    # Northwind procurement agent: public PO ceiling + approved-supplier whitelist.
+    # The whitelist is the deterministic policy lever (off-list supplier -> reject);
+    # the amount ceiling is generous so the LLM's amount math never trips it by accident.
+    "procurement": [
+        {"field": "amount", "operator": OP_LT, "value_num": 500_000},
+        {"field": "vendor", "operator": OP_IN, "set_values": ["VENDOR_001", "VENDOR_002", "VENDOR_003"]},
+    ],
+    # Same, but the approved-supplier list is PRIVATE (Mode 2, encrypted off-chain).
+    "procurement_private": [
+        {"field": "amount", "operator": OP_LT, "value_num": 500_000},
+        {"field": "vendor", "operator": OP_IN, "set_values": ["VENDOR_001", "VENDOR_002", "VENDOR_003"], "private": True},
+    ],
     "insurance": [
         {"field": "claim_amount", "operator": OP_LT, "value_num": 200_000},
         {"field": "hospital", "operator": OP_IN, "set_values": ["HOSP_001", "HOSP_002"]},
