@@ -161,7 +161,8 @@ async def run_audit_flow_v2(
         "amount": amount,
         "vendor_id": vendor_id,
         "agent_decision": agent_decision,
-        "decision": agent_decision,
+        # enforced "decision" is added post-policy in _execute_pipeline — the pre-policy
+        # IPFS snapshot holds only the agent's claim (agent_decision), not the verdict.
         "reason": reason,
         "reasoning_trace": reasoning_trace,
         "policy": POLICY_ID,
@@ -199,7 +200,8 @@ async def run_chat_flow_v2(
         "amount": amount,
         "vendor_id": vendor_id,
         "agent_decision": agent_decision,
-        "decision": agent_decision,
+        # enforced "decision" is added post-policy in _execute_pipeline — the pre-policy
+        # IPFS snapshot holds only the agent's claim (agent_decision), not the verdict.
         "reason": reason,
         "reasoning_trace": reasoning_trace,
         "policy": POLICY_ID,
@@ -257,7 +259,8 @@ async def run_ingest_v2(
         "action": action,
         "action_id": _new_action_id(),
         "agent_decision": decision,
-        "decision": decision,
+        # enforced "decision" is added post-policy in _execute_pipeline — the pre-policy
+        # IPFS snapshot holds only the agent's claim (agent_decision), not the verdict.
         "fields": fields,
         "reasoning_trace": reasoning_trace or [{"step": 1, "tool": "external_agent", "args": {}, "result": decision}],
         "source": "ingest",

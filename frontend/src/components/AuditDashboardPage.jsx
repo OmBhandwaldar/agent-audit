@@ -45,6 +45,77 @@ function PolicyChips({ policies, policyResult }) {
   )
 }
 
+/* ─── Policy result disclosure (verify modal): status summary → expandable list ─ */
+
+function PolicyResultDisclosure({ policies, policyResult }) {
+  const [open, setOpen] = useState(false)
+  const items = policies && policies.length
+    ? policies
+    : (policyResult
+        ? String(policyResult).split("|").map((part) => {
+            const [res, layer] = part.split(":")
+            return { field: null, result: res === "pass" ? "pass" : "fail", layer }
+          })
+        : [])
+  if (!items.length) return <span className="font-mono text-[#484847] text-[11px]">—</span>
+
+  const failed = items.filter((p) => p.result === "fail").length
+  const allPass = failed === 0
+  const modeLabel = (layer) => (layer === "attested" ? "private" : layer === "onchain" ? "public" : (layer || "—"))
+
+  return (
+    <div className="flex flex-col gap-2 min-w-0">
+      {/* Status summary — click to expand the per-policy list */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-2 self-start text-[11px] font-label px-2.5 py-1 rounded-lg border cursor-pointer transition-all hover:brightness-110"
+        style={{
+          color: allPass ? "#26fedc" : "#ff6d8e",
+          borderColor: allPass ? "rgba(38,254,220,0.25)" : "rgba(255,109,142,0.25)",
+          background: allPass ? "rgba(38,254,220,0.06)" : "rgba(255,109,142,0.06)",
+        }}
+      >
+        <span className="material-symbols-outlined text-[14px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+          {allPass ? "verified" : "gpp_maybe"}
+        </span>
+        {allPass ? "All checks passed" : `${failed} of ${items.length} failed`}
+        <span className="text-[#767575] font-mono">· {items.length} {items.length === 1 ? "policy" : "policies"}</span>
+        <span className="material-symbols-outlined text-[15px] transition-transform" style={{ transform: open ? "rotate(180deg)" : "none" }}>
+          expand_more
+        </span>
+      </button>
+
+      {/* Expanded list — one policy per row: field · mode · status */}
+      {open && (
+        <div className="flex flex-col rounded-lg border border-[#2a2a2a] overflow-hidden">
+          {items.map((p, i) => {
+            const pass = p.result === "pass"
+            return (
+              <div key={i} className="flex items-center justify-between gap-3 px-3 py-2 border-b border-[#1a1919] last:border-0 bg-[#0e0e0e]">
+                <span className="font-mono text-[11px] text-[#e8e6e6] truncate">{p.field || `policy ${i + 1}`}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-label px-1.5 py-0.5 rounded-md border border-[#2a2a2a] text-[#767575]"
+                    title={p.layer === "attested" ? "Mode 2 — private, enforced off-chain" : "Mode 1 — public, enforced on-chain"}>
+                    {modeLabel(p.layer)}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border"
+                    style={{
+                      color: pass ? "#26fedc" : "#ff6d8e",
+                      borderColor: pass ? "rgba(38,254,220,0.25)" : "rgba(255,109,142,0.25)",
+                      background: pass ? "rgba(38,254,220,0.06)" : "rgba(255,109,142,0.06)",
+                    }}>
+                    {pass ? "pass ✓" : "fail ✗"}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ─── Merkle batch widget ─────────────────────────────────────────────────── */
 
 function BatchWidget({ apiBase, stats, onRefresh }) {
@@ -878,8 +949,8 @@ function VerifyModal({ apiBase, onClose }) {
                     {summary.decision} {summary.asa_minted && "· 1 AACR"}
                   </span>
 
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Policy result</span>
-                  <PolicyChips policies={summary.policies} policyResult={summary.policy_result} />
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px]">Policy result</span>
+                  <PolicyResultDisclosure policies={summary.policies} policyResult={summary.policy_result} />
 
                   <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Vendor ID</span>
                   <span className="font-mono text-[#adaaaa]">{summary.vendor_id}</span>
