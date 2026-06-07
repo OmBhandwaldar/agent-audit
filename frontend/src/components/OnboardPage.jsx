@@ -37,30 +37,68 @@ function CopyButton({ text }) {
   )
 }
 
-function buildSnippet({ billing, orgId, agentId, apiKey, apiBase, fields }) {
-  const fieldLines = (fields && fields.length ? fields : ["field"])
-    .map((f) => `        "${f}": ...`)
-    .join(",\n")
+function buildSnippet({ style, billing, orgId, agentId, agentName, apiKey, apiBase, fields }) {
+  const keys = fields && fields.length ? fields : ["field"]
+  const nameComment = agentName ? `  # ${agentName}` : ""
+
+  // REST — language-agnostic, API key as a Bearer token.
+  if (style === "rest") {
+    const fieldJson = keys.map((f) => `      "${f}": <value>`).join(",\n")
+    return `curl -X POST ${apiBase}/v1/audit \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "agent_id": "${agentId}",
+    "action": "your_action",
+    "decision": "approved",
+    "fields": {
+${fieldJson}
+    }
+  }'`
+  }
+
+  // Python SDK — shared client construction (api key or x402).
   const client = billing === "x402"
     ? `audit = AuditClient(\n    org_id="${orgId}",\n    x402_mnemonic="<payer wallet mnemonic>",  # pays $0.01 USDC per call\n    base_url="${apiBase}",\n)`
     : `audit = AuditClient(api_key="${apiKey}", base_url="${apiBase}")`
+  const pyFields = keys.map((f) => `        "${f}": <value>`).join(",\n")
+
+  // Decorator — wrap the decision function; it returns {decision, fields}.
+  if (style === "decorator") {
+    return `from agentaudit import AuditClient
+
+${client}
+AGENT_ID = "${agentId}"${nameComment}
+
+@audit.capture(agent_id=AGENT_ID, action="your_action")
+def decide(...):
+    # ... your agent's own logic ...
+    return {
+        "decision": "approved",
+        "fields": {
+${pyFields}
+        },
+    }`
+  }
+
+  // SDK explicit call.
   return `from agentaudit import AuditClient
 
 ${client}
 
 result = audit.audit(
-    agent_id="${agentId}",
+    agent_id="${agentId}",${nameComment}
     action="your_action",
     decision="approved",
     fields={
-${fieldLines}
+${pyFields}
     },
 )`
 }
 
 function OnboardPage({ apiBase }) {
   const [orgId, setOrgId]   = useState("")
-  const [agentId, setAgentId] = useState("procurement_agent")
+  const [agentName, setAgentName] = useState("Procurement Agent")
   const [billing, setBilling] = useState("api_key")  // "api_key" | "x402"
   const [policies, setPolicies] = useState([
     { field: "amount", operator: 1, value: "5000", private: false },
@@ -69,6 +107,7 @@ function OnboardPage({ apiBase }) {
   const [status, setStatus] = useState("idle")  // idle | loading | done | error
   const [result, setResult] = useState(null)
   const [error,  setError]  = useState(null)
+  const [snippetStyle, setSnippetStyle] = useState("decorator")  // decorator | sdk | rest
 
   const updatePolicy = (i, patch) =>
     setPolicies((ps) => ps.map((p, idx) => (idx === i ? { ...p, ...patch } : p)))
@@ -78,11 +117,11 @@ function OnboardPage({ apiBase }) {
     setPolicies((ps) => ps.filter((_, idx) => idx !== i))
 
   const submit = async () => {
-    if (!orgId.trim() || !agentId.trim()) { setError("Org and agent are required"); setStatus("error"); return }
+    if (!orgId.trim() || !agentName.trim()) { setError("Org and agent name are required"); setStatus("error"); return }
     setStatus("loading"); setError(null)
     const payload = {
       org_id: orgId.trim(),
-      agent_id: agentId.trim(),
+      agent_name: agentName.trim(),
       billing_mode: billing,
       policies: policies
         .filter((p) => p.field.trim())
@@ -164,12 +203,15 @@ function OnboardPage({ apiBase }) {
 
             {/* Step 2 — Agent */}
             <section className="rounded-2xl border border-[#2a2a2a] bg-[#131313] p-5">
-              <span className="text-[11px] font-bold font-label uppercase tracking-widest text-[#adaaaa]">2 · Agent</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold font-label uppercase tracking-widest text-[#adaaaa]">2 · Agent</span>
+                <span className="text-[10px] text-[#484847] font-label">a unique agent id is issued on create</span>
+              </div>
               <input
                 className="mt-3 w-full bg-[#0e0e0e] border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm text-white font-body
                   outline-none focus:border-[#ff4f00]/50 transition-colors placeholder:text-[#484847]"
-                placeholder="Agent id (e.g. payment_agent, claims_agent)"
-                value={agentId} onChange={(e) => setAgentId(e.target.value)}
+                placeholder="Agent name (e.g. Procurement Agent)"
+                value={agentName} onChange={(e) => setAgentName(e.target.value)}
               />
             </section>
 
@@ -245,13 +287,18 @@ function OnboardPage({ apiBase }) {
           <div className="flex flex-col gap-5">
             <div className="flex items-center gap-2 text-[#26fedc] font-label">
               <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-              <span className="font-semibold">{result.org_id} / {result.agent_id} onboarded · {result.billing_mode === "x402" ? "pay-per-call" : "subscription"}</span>
+              <span className="font-semibold">{result.org_id} / {result.agent_name || result.agent_id} onboarded · {result.billing_mode === "x402" ? "pay-per-call" : "subscription"}</span>
             </div>
 
             {/* Credentials */}
             <section className="rounded-2xl border border-[#2a2a2a] bg-[#131313] p-5 flex flex-col gap-3">
               <span className="text-[11px] font-bold font-label uppercase tracking-widest text-[#adaaaa]">Credentials · shown once</span>
 
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[#767575] font-label uppercase w-28 shrink-0">Agent ID</span>
+                <code className="flex-1 font-mono text-xs text-white break-all">{result.agent_id}</code>
+                <CopyButton text={result.agent_id} />
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[#767575] font-label uppercase w-28 shrink-0">API key</span>
                 <code className="flex-1 font-mono text-xs text-[#ff4f00] break-all">{result.api_key}</code>
@@ -270,21 +317,38 @@ function OnboardPage({ apiBase }) {
 
             {/* Integration snippet */}
             <section className="rounded-2xl border border-[#2a2a2a] bg-[#131313] p-5">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[11px] font-bold font-label uppercase tracking-widest text-[#adaaaa]">
-                  Connect your agent · {result.billing_mode === "x402" ? "x402" : "API key"}
-                </span>
-                <CopyButton text={buildSnippet({ billing: result.billing_mode, orgId: result.org_id, agentId: result.agent_id, apiKey: result.api_key, apiBase, fields: result.fields })} />
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <div className="flex items-center gap-1">
+                  {[
+                    { id: "decorator", label: "Decorator" },
+                    { id: "sdk", label: "SDK" },
+                    { id: "rest", label: "REST API" },
+                  ].map((t) => (
+                    <button key={t.id} onClick={() => setSnippetStyle(t.id)}
+                      className={`text-[11px] font-label px-2.5 py-1 rounded-md border transition-colors cursor-pointer
+                        ${snippetStyle === t.id
+                          ? "border-[#ff4f00]/60 text-[#ff4f00] bg-[#ff4f00]/8"
+                          : "border-[#2a2a2a] text-[#767575] hover:text-[#adaaaa]"}`}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <CopyButton text={buildSnippet({ style: snippetStyle, billing: result.billing_mode, orgId: result.org_id, agentId: result.agent_id, agentName: result.agent_name, apiKey: result.api_key, apiBase, fields: result.fields })} />
               </div>
               <pre className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg p-4 font-mono text-[11px] text-slate-300 overflow-x-auto whitespace-pre leading-relaxed m-0">
-                <code>{buildSnippet({ billing: result.billing_mode, orgId: result.org_id, agentId: result.agent_id, apiKey: result.api_key, apiBase, fields: result.fields })}</code>
+                <code>{buildSnippet({ style: snippetStyle, billing: result.billing_mode, orgId: result.org_id, agentId: result.agent_id, agentName: result.agent_name, apiKey: result.api_key, apiBase, fields: result.fields })}</code>
               </pre>
               <p className="mt-2 text-[10px] text-[#484847] leading-relaxed">
-                Your agent must emit exactly these fields ({(result.fields || []).join(", ") || "—"}) — they're the ones your policies check.
+                {snippetStyle === "rest"
+                  ? "Any language — POST your decision with the API key as a Bearer token."
+                  : snippetStyle === "decorator"
+                  ? 'Wrap your decision function — it returns {"decision", "fields"} and is audited automatically.'
+                  : "Call audit.audit(...) wherever your agent finalizes a decision."}
+                {" "}Fields ({(result.fields || []).join(", ") || "—"}) are what your policies check.
               </p>
             </section>
 
-            <button onClick={() => { setStatus("idle"); setResult(null); setOrgId(""); setAgentId("") }}
+            <button onClick={() => { setStatus("idle"); setResult(null); setOrgId(""); setAgentName("Procurement Agent") }}
               className="self-start text-[11px] font-label text-[#767575] hover:text-[#ff4f00] transition-colors cursor-pointer">
               ← Onboard another
             </button>
