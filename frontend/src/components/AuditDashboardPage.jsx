@@ -45,6 +45,60 @@ function PolicyChips({ policies, policyResult }) {
   )
 }
 
+/* ─── Decision fields (agent-agnostic): renders any {field: value} schema ─────── */
+
+function FieldsList({ fields }) {
+  const entries = fields && typeof fields === "object" ? Object.entries(fields) : []
+  if (!entries.length) return <span className="text-[#484847] text-[11px]">—</span>
+  const fmt = (v) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v))
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {entries.map(([k, v]) => (
+        <span key={k} className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-md bg-[#1a1919] border border-[#2a2a2a] text-[10px] font-mono">
+          <span className="text-[#767575]">{k}</span>
+          <span className="text-[#e8e6e6]">{fmt(v)}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/* ─── Fields modal — full list of a record's decision fields, one per line ────── */
+
+function FieldsModal({ fields, actionId, onClose }) {
+  const entries = fields && typeof fields === "object" ? Object.entries(fields) : []
+  const fmt = (v) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v))
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}>
+      <div className="bg-[#131313] border border-[#2a2a2a] rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[#2a2a2a]">
+          <div>
+            <h3 className="headline font-bold text-white tracking-tight">Decision fields</h3>
+            {actionId && <p className="text-[11px] text-[#767575] font-mono mt-0.5">{actionId}</p>}
+          </div>
+          <button onClick={onClose} className="text-[#767575] hover:text-white transition-colors cursor-pointer shrink-0">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div className="overflow-y-auto py-1">
+          {entries.length === 0 ? (
+            <p className="text-[#767575] text-sm px-5 py-4">No fields recorded.</p>
+          ) : (
+            entries.map(([k, v]) => (
+              <div key={k} className="flex items-center justify-between gap-4 px-5 py-3 border-b border-[#1a1919] last:border-0">
+                <span className="font-mono text-[12px] text-[#767575] shrink-0">{k}</span>
+                <span className="font-mono text-[13px] text-[#e8e6e6] text-right break-all">{fmt(v)}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Policy result disclosure (verify modal): status summary → expandable list ─ */
 
 function PolicyResultDisclosure({ policies, policyResult }) {
@@ -380,6 +434,8 @@ function DecisionBadge({ decision }) {
 
 function AuditRow({ audit, copied, onCopy }) {
   const isCopied = copied === audit.action_id
+  const [showFields, setShowFields] = useState(false)
+  const fieldCount = audit.fields && typeof audit.fields === "object" ? Object.keys(audit.fields).length : 0
   return (
     <tr
       className={`border-b border-[#1a1919] last:border-0 transition-colors duration-150 cursor-pointer
@@ -401,14 +457,24 @@ function AuditRow({ audit, copied, onCopy }) {
         </span>
       </td>
 
-      {/* Amount */}
-      <td className="px-5 py-3.5 font-label text-sm text-white font-medium">
-        ₹{audit.amount?.toLocaleString()}
-      </td>
-
-      {/* Vendor */}
-      <td className="px-5 py-3.5 font-mono text-[11px] text-[#adaaaa]">
-        {audit.vendor_id}
+      {/* Fields (agent-agnostic — button opens a modal listing every field) */}
+      <td className="px-5 py-3.5">
+        {fieldCount === 0 ? (
+          <span className="text-[#484847] text-[11px]">—</span>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowFields(true) }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#2a2a2a] bg-[#1a1919]
+              text-[#adaaaa] text-[11px] font-label hover:border-[#ff4f00]/40 hover:text-[#ff4f00] transition-colors cursor-pointer"
+            title="View decision fields"
+          >
+            <span className="material-symbols-outlined text-[14px]">data_object</span>
+            {fieldCount} {fieldCount === 1 ? "field" : "fields"}
+          </button>
+        )}
+        {showFields && (
+          <FieldsModal fields={audit.fields} actionId={audit.action_id} onClose={() => setShowFields(false)} />
+        )}
       </td>
 
       {/* Agent decision */}
@@ -952,11 +1018,8 @@ function VerifyModal({ apiBase, onClose }) {
                   <span className="text-[#484847] font-label uppercase tracking-wider text-[10px]">Policy result</span>
                   <PolicyResultDisclosure policies={summary.policies} policyResult={summary.policy_result} />
 
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Vendor ID</span>
-                  <span className="font-mono text-[#adaaaa]">{summary.vendor_id}</span>
-
-                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px] self-center">Amount</span>
-                  <span className="font-mono text-[#adaaaa]">₹{summary.amount?.toLocaleString?.() ?? summary.amount}</span>
+                  <span className="text-[#484847] font-label uppercase tracking-wider text-[10px]">Fields</span>
+                  <FieldsList fields={summary.fields} />
 
                   {summary.ipfs_cid && (
                     <>
@@ -1395,7 +1458,7 @@ function AuditDashboardPage({ apiBase }) {
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-[#1a1919]">
-                    {["Action ID", "Agent", "Amount", "Vendor", "Agent Decision", "Policy Decision", "IPFS", "Algorand TX", "Time"].map(h => (
+                    {["Action ID", "Agent", "Fields", "Agent Decision", "Policy Decision", "IPFS", "Algorand TX", "Time"].map(h => (
                       <th key={h}
                         className="px-5 py-3 text-left text-[10px] font-label font-semibold
                           text-[#484847] uppercase tracking-widest whitespace-nowrap bg-[#0a0a0a]">

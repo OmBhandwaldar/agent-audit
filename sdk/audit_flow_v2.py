@@ -126,6 +126,7 @@ async def _execute_pipeline(
         "org_id": org_id,
         "agent_id": agent_id,
         "vendor_id": record.get("vendor_id", ""),
+        "fields": decision_fields,  # the agent's decision inputs, whatever their schema
         "policy_checks": _parse_policy_result(policy_result.policy_result),
         "encrypted": True,
         "batch_pending_count": batch_store.size(),

@@ -14,6 +14,7 @@ Run with: uvicorn api.main:app --reload --port 8000
 import csv
 import hashlib
 import io
+import json
 import logging
 import os
 import time
@@ -172,8 +173,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
             "action_id": result["action_id"],
             "decision": result["decision"],
             "agent_decision": result["agent_decision"],
-            "amount": req.amount,
-            "vendor_id": req.vendor_id,
+            "fields": result.get("fields", {}),
             "agent_type_id": result["agent_type_id"],
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
@@ -219,8 +219,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             "action_id": result["action_id"],
             "decision": result["decision"],
             "agent_decision": result["agent_decision"],
-            "amount": result.get("amount", 0),
-            "vendor_id": result["vendor_id"],
+            "fields": result.get("fields", {}),
             "agent_type_id": result["agent_type_id"],
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
@@ -276,8 +275,7 @@ async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> 
             "action_id": result["action_id"],
             "decision": result["decision"],
             "agent_decision": result["agent_decision"],
-            "amount": req.fields.get("amount", 0),
-            "vendor_id": req.fields.get("vendor", ""),
+            "fields": req.fields,
             "agent_type_id": tenant_store.get_agent_display_name(org_id, req.agent_id) or req.agent_id,
             "policy_checks": result["policy_checks"],
             "policy_result": result["policy_result"],
@@ -330,8 +328,8 @@ async def ingest_audit_x402(req: X402IngestRequest) -> dict:
         )
         recent_audits.appendleft({
             "action_id": result["action_id"], "decision": result["decision"],
-            "agent_decision": result["agent_decision"], "amount": req.fields.get("amount", 0),
-            "vendor_id": req.fields.get("vendor", ""),
+            "agent_decision": result["agent_decision"],
+            "fields": req.fields,
             "agent_type_id": tenant_store.get_agent_display_name(req.org_id, req.agent_id) or req.agent_id,
             "policy_checks": result["policy_checks"], "policy_result": result["policy_result"],
             "policies": _policy_breakdown(result.get("org_id"), result.get("agent_id"), result["policy_result"]),
@@ -594,9 +592,8 @@ async def export_csv():
     """
     output = io.StringIO()
     fieldnames = [
-        "action_id", "timestamp", "amount", "vendor_id",
-        "decision", "amount_check", "vendor_check",
-        "policy_result", "asa_minted", "ipfs_cid", "algorand_tx_id",
+        "action_id", "timestamp", "agent", "fields",
+        "decision", "policy_result", "asa_minted", "ipfs_cid", "algorand_tx_id",
     ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
@@ -605,11 +602,9 @@ async def export_csv():
         writer.writerow({
             "action_id": audit["action_id"],
             "timestamp": audit["timestamp"],
-            "amount": audit["amount"],
-            "vendor_id": audit["vendor_id"],
+            "agent": audit.get("agent_type_id", ""),
+            "fields": json.dumps(audit.get("fields", {})),  # agent-agnostic: any field schema
             "decision": audit["decision"],
-            "amount_check": audit["policy_checks"].get("amount_check", ""),
-            "vendor_check": audit["policy_checks"].get("vendor_check", ""),
             "policy_result": audit["policy_result"],
             "asa_minted": audit["asa_minted"],
             "ipfs_cid": audit["ipfs_cid"],
@@ -733,8 +728,7 @@ def _build_record_summary(record: dict) -> dict:
     """Extract the fields shown in verify responses without the full record blob."""
     return {
         "decision": record.get("decision"),
-        "amount": record.get("amount"),
-        "vendor_id": record.get("vendor_id"),
+        "fields": record.get("fields", {}),
         "policy_result": record.get("policy_result"),
         "policies": _policy_breakdown(record.get("org_id"), record.get("agent_id"), record.get("policy_result")),
         "asa_minted": record.get("asa_minted"),

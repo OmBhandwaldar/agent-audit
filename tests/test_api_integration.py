@@ -91,7 +91,7 @@ def test_verify_pending_path(client):
 
     v = client.get(f"/api/verify?action_id={action_id}").json()
     assert v["anchor_status"] == "pending"
-    assert v["record_summary"]["amount"] == 4500
+    assert v["record_summary"]["fields"]["amount"] == 4500
 
 
 def test_verify_unknown_action_404(client):
