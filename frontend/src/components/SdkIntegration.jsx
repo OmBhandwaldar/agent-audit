@@ -15,13 +15,13 @@ const CODE_SECTIONS = [
     description: "Drop-in for any Python agent. Submit a decision under your org's API key.",
     code: `from agentaudit import AuditClient
 
-audit = AuditClient(api_key="aa_live_...", base_url="https://your-agentaudit-host")
+audit = AuditClient(api_key="aa_<your_api_key>", base_url="https://your-agentaudit-host")
 
 result = audit.audit(
-    agent_id="claims_agent",
-    action="approve_claim",
-    decision="approved",
-    fields={"claim_amount": 150000, "hospital": "HOSP_001"},
+    agent_id="agt_<your_agent>",
+    action="<action_performed>",
+    decision="<agent_decision>",
+    fields={"field_1": <value_1>, "field_2": <value_2>},
     reasoning_trace=trace,
 )
 # result: action_id, decision (on-chain), asa_minted, policy_result, ipfs_cid, algorand_tx_id`,
@@ -35,16 +35,16 @@ result = audit.audit(
 
 # Pay-per-call: the agent pays $0.01 USDC per decision (no API key)
 audit = AuditClient(
-    org_id="medico",
+    org_id="<your_org>",
     x402_mnemonic="<payer wallet mnemonic>",
     base_url="https://your-agentaudit-host",
 )
 
 result = audit.audit(
-    agent_id="claims_agent",
-    action="approve_claim",
-    decision="approved",
-    fields={"claim_amount": 150000, "hospital": "HOSP_001"},
+    agent_id="agt_<your_agent>",
+    action="<action_performed>",
+    decision="<agent_decision>",
+    fields={"field_1": <value_1>, "field_2": <value_2>},
 )
 # the SDK auto-pays $0.01 USDC, the facilitator settles, then the audit runs`,
   },
@@ -54,14 +54,14 @@ result = audit.audit(
     lang: "http",
     description: "Language-agnostic. Any stack POSTs to /v1/audit with its API key.",
     code: `POST https://your-agentaudit-host/v1/audit
-Authorization: Bearer <your_api_key>
+Authorization: Bearer aa_<your_api_key>
 Content-Type: application/json
 
 {
-  "agent_id": "claims_agent",
-  "action": "approve_claim",
-  "decision": "approved",
-  "fields": { "claim_amount": 150000, "hospital": "HOSP_001" },
+  "agent_id": "agt_<your_agent>",
+  "action": "<action_performed>",
+  "decision": "<agent_decision>",
+  "fields": { "field_1": <value_1>, "field_2": <value_2> },
   "reasoning_trace": []
 }`,
   },
@@ -71,14 +71,13 @@ Content-Type: application/json
     lang: "python",
     description: "Zero changes to your decision logic — wrap the function and it's audited.",
     code: `from agentaudit import AuditClient
-audit = AuditClient(api_key="aa_live_...")
+audit = AuditClient(api_key="aa_<your_api_key>")
 
-@audit.capture(agent_id="claims_agent", action="approve_claim")
-def decide(claim_amount, hospital):
+@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")
+def decide(...):
     # your existing agent logic — unchanged
-    decision = "approved" if claim_amount < 200000 else "rejected"
-    return {"decision": decision,
-            "fields": {"claim_amount": claim_amount, "hospital": hospital}}
+    return {"decision": "<agent_decision>",
+            "fields": {"field_1": <value_1>, "field_2": <value_2>}}
 
 # every call is policy-checked on-chain, encrypted, and anchored automatically`,
   },
