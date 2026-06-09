@@ -187,8 +187,12 @@ Two billing mechanics under the usage lane:
   some grow into SaaS seats -> the regulated few move up to enterprise.
 - **Onboarding is one-time and human; operation is continuous and autonomous.**
 - **Anchors are load-bearing:** LangSmith $39/seat justifies the SaaS 2.5x; Credo AI bounds enterprise.
-- **Architecture = unit economics:** $0.01/audit at 90% margin is only possible because Merkle
-  batching keeps on-chain cost flat.
+- **Architecture = unit economics:** there are two on-chain costs. The per-audit policy check
+  (`PolicyContract.check_and_mint` -> one app call plus an inner AACR mint on pass, ~0.001-0.002 ALGO,
+  no per-audit box) is the linear floor, kept sub-cent by Algorand fees. Merkle batching keeps the
+  *separate* anchoring (`AnchorContract`) flat so it never becomes a second per-audit transaction.
+  $0.01/audit holds 90%+ margin because the per-audit transaction is sub-cent (impossible on Ethereum),
+  not because all on-chain cost is flat.
 - **Honest framing:** this is the revenue *model*, not validated revenue. Pair with the
   three-regulation demand signal; never claim paying customers unless true.
 
