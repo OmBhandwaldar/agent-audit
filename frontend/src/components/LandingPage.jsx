@@ -248,7 +248,7 @@ const INSTALL_COMMANDS = {
 
 const INSTALL_COMMENTS = {
   "API":                  "# Hit the REST API directly from any language — Bearer your API key.",
-  "SDK":                  "# pip install agentaudit — then log every decision with the client.",
+  "SDK":                  "# pip install agentaudit-core — then log every decision with the client.",
   "Middleware/Decorator": "# Wrap your decision function — audited automatically on every call.",
 }
 
