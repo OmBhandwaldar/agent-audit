@@ -172,9 +172,9 @@ via x402. The compliance guarantee holds because a human set the policies.
 
 | Model | Who pays & how | Price (anchor) | What it provides | Why it works |
 |---|---|---|---|---|
-| **Per-audit / x402** (primary) | The agent pays per call in USDC via x402, after a human provisions it once (org, policies, key) | **$0.01 USDC / audit** | Self-serve provisioning (no salesperson); shared multi-tenant contract; Mode 1 + Mode 2; encrypt -> IPFS -> Merkle-anchor -> AACR; verify-by-Action-ID | **No sales cycle** (self-serve) + **zero-touch per-call billing**. Algorand fees <$0.001 -> **90%+ margin**. |
-| **SaaS subscription** (secondary) | Mid-market companies, post-paid; agent authenticates with an API key, calls metered | **$99 / seat · $2,500 / mo** (anchor: LangSmith $39/seat) | API key + SDK/decorator; self-serve dashboard; multi-tenant contract; per-org key; Mode 1 + Mode 2; dashboard, CSV export, metered usage | Recurring revenue. The 2.5x premium over LangSmith holds because observability tells you what happened — AgentAudit proves it to a third party. |
-| **Enterprise / self-hosted** (tertiary) | Banks, insurers, regulators; annual contract via sales | **$75K–$250K / yr** (anchor: Credo AI $75K–$400K/yr) | Dedicated contract instance (isolation); self-hosted option; client-side encryption; priority Mode 3 roadmap; SLA, ISO 42001, dedicated support, custom policy types | High ACV anchors the top of the funnel. Isolation + compliance certs are what regulated buyers pay for. |
+| **Per regulated decision / x402** (land) | The agent pays per call in USDC via x402, after a human provisions it once (org, policies, key) | **$0.01 USDC / regulated decision** | Self-serve provisioning (no salesperson); shared multi-tenant contract; Mode 1 + Mode 2; encrypt -> IPFS -> Merkle-anchor -> AACR; verify-by-Action-ID | **Adoption lane**: no sales cycle, zero-touch billing. Lands the long tail of agents; NOT the revenue engine. |
+| **SaaS, platform + usage** (revenue engine) | Company pays a monthly platform fee bundling a block of decisions + a few dashboard seats; decisions above the block metered; extra seats add-on | **From ~$2,500/mo** (bundle of decisions + 3-5 seats); overage ~$0.01/decision; extra dashboard seat ~$99 (seat anchor: LangSmith $39) | API key + SDK/decorator; self-serve dashboard; per-org key; Mode 1 + Mode 2; CSV export; metered usage | Recurring revenue, the revenue engine. Priced as a **compliance line item**, not eng tooling. Usage (decisions) is the meter; seats are a dashboard add-on. |
+| **Enterprise / self-hosted** (target) | Banks, insurers, regulators; annual contract via sales | **$75K–$250K / yr target**, priced once SOC 2 / ISO 42001 certified (anchor: Credo AI $75K–$400K/yr) | Dedicated contract instance (isolation); self-hosted option; client-side encryption; priority Mode 3 roadmap; SLA, ISO 42001, dedicated support, custom policy types | High ACV at the top of the funnel. Certs + references gate this price. |
 
 Two billing mechanics under the usage lane:
 
@@ -183,10 +183,16 @@ Two billing mechanics under the usage lane:
 | **x402 (prepaid, per call)** | Provisioned agent, no per-call human | Agent gets `402` -> pays $0.01 USDC -> audit runs | Yes — policies + key set once by a human |
 | **Metered API (post-paid)** | Onboarded SaaS orgs | API key authenticates; calls counted -> monthly invoice | Yes — same one-time provisioning |
 
-- **Funnel, not three products.** Self-serve per-audit lands the long tail of autonomous agents ->
-  some grow into SaaS seats -> the regulated few move up to enterprise.
+- **Funnel, not three products.** Self-serve per-decision lands the long tail of autonomous agents ->
+  some grow into the SaaS platform plan -> the regulated few move up to enterprise.
 - **Onboarding is one-time and human; operation is continuous and autonomous.**
-- **Anchors are load-bearing:** LangSmith $39/seat justifies the SaaS 2.5x; Credo AI bounds enterprise.
+- **Adoption vs revenue:** x402 is primary by *adoption* (no sales cycle); SaaS + enterprise are primary
+  by *revenue* (compliance buyers want a fixed budget line, not a variable per-call bill).
+- **Usage is the value meter:** price scales with regulated decisions audited (machine usage), not human
+  seats. Seats are only a dashboard add-on.
+- **Compliance budget, not eng tooling:** compare against manual audit prep, GRC tools, or fine exposure,
+  not per-seat dev tools. LangSmith $39 anchors the seat *add-on* only (the $99 seat is the verifiability
+  premium on a dashboard login); Credo AI bounds enterprise; the enterprise band is a post-cert target.
 - **Architecture = unit economics:** there are two on-chain costs. The per-audit policy check
   (`PolicyContract.check_and_mint` -> one app call plus an inner AACR mint on pass, ~0.001-0.002 ALGO,
   no per-audit box) is the linear floor, kept sub-cent by Algorand fees. Merkle batching keeps the
