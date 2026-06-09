@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentaudit"
-version = "0.1.0"
+name = "agentaudit-core"
+version = "0.1.1"
 description = "AgentAudit SDK — make any AI agent's decisions independently verifiable on Algorand."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,14 +13,14 @@ authors = [{ name = "AgentAudit" }]
 keywords = ["ai-agents", "audit", "compliance", "algorand", "verifiable"]
 dependencies = [
     "httpx>=0.27",
-]
-
-[project.optional-dependencies]
-# Pay-per-call billing (x402). Only needed when constructing AuditClient with x402_mnemonic.
-x402 = [
     "x402-avm>=2.0",
     "py-algorand-sdk>=2.0",
 ]
+
+[project.optional-dependencies]
+# x402 deps are now core, so a bare `pip install agentaudit` includes pay-per-call.
+# Empty extra kept so an existing `pip install agentaudit[x402]` still resolves as a no-op alias.
+x402 = []
 
 [project.urls]
 Homepage = "https://github.com/OmBhandwaldar/agent-audit"
