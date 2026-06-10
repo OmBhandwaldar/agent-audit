@@ -91,6 +91,20 @@ Alternative would have been: separate trace field, anchored separately. Two reas
 1. Existing Merkle proof covers the trace for free — no second tamper-evidence story needed
 2. Trace is sensitive (reveals how the agent thinks, what it considered) — should be auditor-gated like the rest of the record
 
+### Batch triggering: manual now, deliberately. Production design deferred (not a gap)
+
+The flush trigger is **manual** (`POST /api/batch/submit`). `BATCH_SIZE=8` exists but nothing auto-fires on it. This is intentional for the demo: anchoring stays *controlled* (no background worker firing a partial batch mid-demo, no surprise ALGO/box-MBR spend), and the run sheet pre-anchors in PREP. We chose not to automate it for the round — the trigger mechanism is invisible in a demo (judge sees `decision → root anchored → verify ✅` either way), so automating it would add live-demo failure modes for zero visible payoff, on the one subsystem where a bug silently breaks verification.
+
+**The production design (the answer to "is this production-ready?"):**
+
+1. **Trigger = size OR age, whichever first.** Flush when `pending_count >= MAX_LEAVES` (~128, bounds the freshness window on bursts) **or** `oldest_pending_age >= MAX_AGE` (~60s, *is* the freshness SLA: "anchored within 60s"). Count-only strands a low-volume org's records unanchored forever; time-only anchors wasteful 1-leaf batches in quiet periods. Session-based is meaningless — autonomous agents have no sessions. A single background worker evaluates both; the manual endpoint stays as force-flush/admin.
+
+2. **Scope = global mixed tree by default.** All orgs/agents in one stream. Maximizes amortization (the $0.01/audit margin *depends* on folding everyone's traffic into shared batches → frequent, cheap anchors). Zero content leakage — leaves are hashes of already-encrypted records; a proof exposes only sibling hashes (same model as Certificate Transparency, everyone's certs in one public tree). **Key point: inclusion proofs are per-leaf regardless of neighbors**, and every leaf already carries `org_id`/`agent_id`, so a tenant's "my verifiable log" is just `WHERE org_id=?` — no per-tenant tree needed. Per-company (and rarely per-agent) dedicated streams are an *enterprise opt-in* flag (a `stream_key` column), accepting worse amortization for sovereignty. Never per-agent by default.
+
+3. **Concurrency: claim-before-flush.** The moment it's automatic, `flush()` must atomically claim leaves (`UPDATE leaves SET batch_id=:provisional WHERE batch_id IS NULL AND stream_key=:k`) before computing the root, with rollback to NULL if `submit_anchor_root` throws. Today's read-only flush would let two flushers double-anchor — latent now (single worker, single manual flush), real once automated.
+
+Contained change: `batcher/store.py` + a small worker. No contract change. Deferred to post-hackathon.
+
 ### Why IPFS specifically (not S3, not Postgres, not Algorand boxes)
 
 | Option | Problem |
