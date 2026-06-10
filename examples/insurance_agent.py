@@ -8,12 +8,13 @@ separate agent:
                    $0.01 USDC per claim it logs.
 
 Prerequisites:
-  1. Onboard the insurer org:  python scripts/onboard_org.py medico claims_agent insurance_private
+  1. Onboard the insurer org:  python scripts/onboard_org.py insurer "Claims Agent" insurance_private
+     Onboarding issues an opaque agent_id (agt_...) and an API key — copy both.
   2. Run the backend:          uvicorn api.main:app --port 8000
      (for x402 also: X402_ENABLED=true X402_RECIPIENT=<addr> ...)
-  3. Run this example with one of:
-       AGENTAUDIT_API_KEY=aa_... python examples/insurance_agent.py
-       AGENTAUDIT_ORG_ID=medico AGENTAUDIT_X402_MNEMONIC="<payer 25 words>" python examples/insurance_agent.py
+  3. Run this example, passing the issued agent_id, with one of:
+       AGENTAUDIT_API_KEY=aa_... AGENTAUDIT_AGENT_ID=agt_... python examples/insurance_agent.py
+       AGENTAUDIT_ORG_ID=insurer AGENTAUDIT_X402_MNEMONIC="<payer 25 words>" AGENTAUDIT_AGENT_ID=agt_... python examples/insurance_agent.py
 """
 
 import os
@@ -27,7 +28,7 @@ AGENT_ID = os.getenv("AGENTAUDIT_AGENT_ID", "claims_agent")
 def _make_client() -> AuditClient:
     x402_mn = os.getenv("AGENTAUDIT_X402_MNEMONIC")
     if x402_mn:
-        org_id = os.getenv("AGENTAUDIT_ORG_ID", "medico")
+        org_id = os.getenv("AGENTAUDIT_ORG_ID", "insurer")
         print(f"[billing: x402 pay-per-call — org={org_id}, $0.01 USDC per claim]")
         return AuditClient(base_url=BASE_URL, org_id=org_id, x402_mnemonic=x402_mn)
     api_key = os.getenv("AGENTAUDIT_API_KEY")
