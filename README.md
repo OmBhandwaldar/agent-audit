@@ -7,7 +7,7 @@ Verifiable compliance infrastructure for autonomous AI agents.
 **Demo Video:** https://youtu.be/lz71ab2ZaP0
 
 **Deployed Smart Contracts (Algorand Testnet):**
-- PolicyContract App ID: `762056214`
+- PolicyContract App ID: `763911528`
 - AnchorContract App ID: `762026494`
 - AACR Compliance ASA ID: `757894056`
 
@@ -70,6 +70,32 @@ Action ID → Fetch record + Merkle proof → Verify inclusion in anchored root 
 
 ---
 
+## Integrating Your Agent
+
+AgentAudit is multi-tenant. Any company onboards itself, gets credentials, and drops the SDK into its existing agent — with no changes to the agent's own logic.
+
+1. **Onboard** (self-serve via the web UI or `POST /v1/onboard`): declare your policies. You receive an **API key**, a system-issued **agent ID** (`agt_…`), and an **encryption key** (shown once).
+2. **Install the SDK:** `pip install agentaudit-core`
+3. **Integrate** — one decorator above your decision function (or an explicit `audit.audit(...)` call):
+
+```python
+from agentaudit import AuditClient
+
+audit = AuditClient(api_key="aa_…")                            # subscription
+# or pay-per-call: AuditClient(org_id="…", x402_mnemonic="…")  # x402, $0.01 USDC / decision
+
+@audit.capture(agent_id="agt_…", action="approve_payment")
+def decide(...):
+    ...  # your existing agent logic, unchanged
+    return {"decision": "approved", "fields": {"amount": 40000, "vendor": "VENDOR_002"}}
+```
+
+Every decision is then policy-checked on-chain, encrypted, and Merkle-anchored automatically. A language-agnostic REST endpoint (`POST /v1/audit` with a Bearer key) works for any stack.
+
+**Policy privacy:** policies can be **public** (Mode 1, enforced on-chain) or **private** (Mode 2 — only a SHA-256 commitment goes on-chain; the rule is encrypted off-chain and re-checkable with the auditor key). A confidential vendor or hospital whitelist enforces and verifies without ever becoming public.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -84,16 +110,40 @@ Action ID → Fetch record + Merkle proof → Verify inclusion in anchored root 
 | Batch Store | SQLite (local pending batch state) |
 | Backend | FastAPI on Railway |
 | Frontend | React + Tailwind CSS on Vercel |
+| Pay-per-call | x402 protocol + USDC on Algorand (optional billing mode) |
 
 ---
 
 ## Features
 
-- **Chat Agent** - Natural language procurement requests. Agent autonomously picks a vendor and gets policy-checked on-chain.
-- **Compliance Check** - Budget limit and vendor whitelist enforced by the smart contract, independent of the agent.
-- **ASA Receipt** - Non-transferable compliance receipt minted on Algorand only when all policies pass.
-- **Audit Dashboard** - Real-time compliance rate, full audit history with agent and policy decisions side by side.
+- **Self-Serve Onboarding + SDK** - Any company onboards itself, declares its policies (public or private), and drops the SDK into its agent — a `@audit.capture` decorator or an explicit call. Subscription or x402 pay-per-call billing.
+- **On-Chain Policy Enforcement** - Policies (amount limits, whitelists, custom predicates) are checked by the smart contract independently of the agent. The on-chain decision is authoritative — it can override what the agent decided.
+- **Private (Mode-2) Policies** - Confidential rules: only a SHA-256 commitment goes on-chain, the rule itself is encrypted off-chain and re-checkable with the auditor key. A private vendor/hospital whitelist enforces and verifies without ever being public.
+- **Encrypted Records (AES-GCM-256)** - Every decision and its reasoning trace is encrypted before upload to IPFS. Public tamper-evidence; private contents gated by the auditor key.
+- **Merkle Batch Anchoring** - Many records are anchored to Algorand in a single transaction, each with its own inclusion proof — flat on-chain cost regardless of volume.
+- **ASA Compliance Receipt** - Non-transferable receipt minted on Algorand only when all policies pass.
+- **Audit Dashboard** - Real-time compliance rate and full audit history with agent and policy decisions side by side. Filter by organization to see any single tenant's isolated log.
 - **Independent Verification** - Anyone can verify any past decision by Action ID. Reconstructs the Merkle proof against the anchored on-chain root, confirms IPFS ciphertext integrity, and optionally decrypts the full record (including agent reasoning trace) with an auditor key.
+
+---
+
+## What's New in Round 4
+
+### Multi-Tenant SDK Platform
+- **What it does:** Any company self-onboards, declares its policies, and integrates its own agent with the SDK (`pip install agentaudit-core`) — one decorator line, no change to the agent's logic. Each org gets a hashed API key and a system-issued opaque agent ID; tenants are isolated by org.
+- **Why I added it:** The Round 3 demo audited one built-in agent. The product is infrastructure — it has to work for *any* company's *any* agent, self-serve.
+
+### x402 Pay-Per-Call Billing
+- **What it does:** Agents can pay $0.01 USDC per decision over x402 instead of a subscription — the SDK auto-pays and the facilitator settles before the audit runs.
+- **Why I added it:** Autonomous agents should be able to pay per use without a human signing up for a plan.
+
+### Private (Mode-2) Policies
+- **What it does:** A policy can be confidential — only its SHA-256 commitment goes on-chain; the rule is encrypted off-chain and re-checkable with the auditor key. A private vendor/hospital whitelist enforces and verifies without ever being public.
+- **Why I added it:** Real compliance rules are sensitive business data. They must be enforceable and auditable without disclosure.
+
+### Per-Org Dashboard
+- **What it does:** The dashboard scopes its feed and stats to any single onboarded organization (`/api/orgs` + an org filter), making tenant isolation visible.
+- **Why I added it:** A multi-tenant platform needs a per-tenant view; a global feed contradicts the isolation guarantee.
 
 ---
 
@@ -220,6 +270,8 @@ agent-audit/
 ├── contracts/
 │   ├── policy_contract.py           # Per-action policy check + ASA mint (Algorand ARC4)
 │   └── anchor_contract.py           # Merkle root anchoring (Algorand ARC4)
+├── agentaudit/                      # The SDK we publish (pip install agentaudit-core)
+│   └── client.py                    # AuditClient — audit() + @capture decorator, x402 support
 ├── sdk/
 │   └── audit_flow_v2.py             # Phase 2 pipeline (encrypt → IPFS → policy → batch)
 ├── agent/
@@ -235,19 +287,28 @@ agent-audit/
 ├── algorand/
 │   ├── contract_client_v2.py        # PolicyContract + AnchorContract clients
 │   └── client.py                    # algod / indexer clients
-├── api/main.py                      # FastAPI — chat, audit, batch, verify, dashboard
+├── tenancy/
+│   ├── store.py                     # SQLite tenant store (orgs, agents, policy rules)
+│   └── provisioning.py              # Onboarding: issue API key + agent_id, register policies
+├── api/main.py                      # FastAPI — onboard, audit (+x402), batch, verify, dashboard, orgs
+├── examples/
+│   └── insurance_agent.py           # Headless claims agent — same SDK, different domain
 ├── scripts/
 │   ├── deploy_phase2.py             # Deploy PolicyContract + AnchorContract
 │   ├── seed_vendors_v2.py           # Seed vendor whitelist on PolicyContract
 │   ├── gen_encryption_key.py        # Generate AES-GCM-256 key for .env
 │   ├── fund_anchor.py               # Top up AnchorContract for box min-balance
+│   ├── onboard_org.py               # Onboard an org + agent + policy preset
+│   ├── demo_check.py                # Pre-demo resource check + auto-top-up (ALGO / AACR)
 │   └── soak_test.py                 # End-to-end multi-record soak test
 └── frontend/src/
     ├── App.jsx
     └── components/
-        ├── ChatAgent.jsx            # Chat UI with compliance check card
-        ├── AuditDashboardPage.jsx   # Dashboard + verify modal with reasoning trace panel
-        └── LandingPage.jsx          # Landing page
+        ├── OnboardPage.jsx          # Self-serve onboarding + copy-paste integration snippet
+        ├── AuditDashboardPage.jsx   # Dashboard (per-org filter) + verify modal with reasoning trace
+        ├── ChatAgent.jsx            # Built-in demo agent (stands in for a customer's agent)
+        ├── NavBar.jsx               # Shared floating nav
+        └── LandingPage.jsx          # Landing page + install / response section
 ```
 
 ---
