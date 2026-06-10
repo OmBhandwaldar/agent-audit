@@ -1267,13 +1267,17 @@ function AuditDashboardPage({ apiBase }) {
   const [copied,          setCopied]          = useState(null)
   const [refreshing,      setRefreshing]      = useState(false)
   const [verifyModalOpen, setVerifyModalOpen] = useState(false)
+  const [orgs,            setOrgs]            = useState([])   // onboarded org_ids (exact casing)
+  const [orgFilter,       setOrgFilter]       = useState("")   // "" = all orgs
 
   const fetchDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
     else           setStatus("loading")
     setError(null)
     try {
-      const res = await fetch(`${apiBase}/api/dashboard`)
+      // org_id is case-sensitive on the backend — pass the exact stored value.
+      const qs = orgFilter ? `?org_id=${encodeURIComponent(orgFilter)}` : ""
+      const res = await fetch(`${apiBase}/api/dashboard${qs}`)
       if (!res.ok) throw new Error("Failed to fetch dashboard data")
       const data = await res.json()
       setStats(data)
@@ -1284,11 +1288,22 @@ function AuditDashboardPage({ apiBase }) {
     } finally {
       setRefreshing(false)
     }
-  }, [apiBase])
+  }, [apiBase, orgFilter])
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  const handleExport = () => window.open(`${apiBase}/api/export/csv`)
+  // Populate the org filter once — values carry the exact stored casing.
+  useEffect(() => {
+    fetch(`${apiBase}/api/orgs`)
+      .then((r) => (r.ok ? r.json() : { orgs: [] }))
+      .then((d) => setOrgs(d.orgs || []))
+      .catch(() => setOrgs([]))
+  }, [apiBase])
+
+  const handleExport = () => {
+    const qs = orgFilter ? `?org_id=${encodeURIComponent(orgFilter)}` : ""
+    window.open(`${apiBase}/api/export/csv${qs}`)
+  }
 
   const handleCopy = (actionId) => {
     navigator.clipboard.writeText(actionId).catch(() => {})
@@ -1331,6 +1346,29 @@ function AuditDashboardPage({ apiBase }) {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Tenant scope — proves per-org isolation; values are exact stored org_ids */}
+            <div className="relative">
+              <span className="material-symbols-outlined text-sm text-[#767575] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                corporate_fare
+              </span>
+              <select
+                value={orgFilter}
+                onChange={(e) => setOrgFilter(e.target.value)}
+                title="Scope the dashboard to one onboarded organization"
+                className="appearance-none pl-9 pr-8 py-2 rounded-full border border-[#2a2a32]
+                  text-[#adaaaa] hover:text-white hover:border-[#484847] text-xs font-label font-medium
+                  transition-all duration-150 cursor-pointer bg-[#111116]/60 backdrop-blur-md outline-none
+                  focus:border-[#ff4f00]/50 max-w-[180px] truncate"
+              >
+                <option value="">All organizations</option>
+                {orgs.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined text-sm text-[#767575] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                expand_more
+              </span>
+            </div>
             <button
               onClick={() => fetchDashboard(true)}
               disabled={refreshing}

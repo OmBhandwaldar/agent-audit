@@ -171,6 +171,7 @@ async def audit(req: AuditRequest) -> AuditResponse:
         # Store in history for dashboard and CSV export
         recent_audits.appendleft({
             "action_id": result["action_id"],
+            "org_id": result.get("org_id"),
             "decision": result["decision"],
             "agent_decision": result["agent_decision"],
             "fields": result.get("fields", {}),
@@ -217,6 +218,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
         recent_audits.appendleft({
             "action_id": result["action_id"],
+            "org_id": result.get("org_id"),
             "decision": result["decision"],
             "agent_decision": result["agent_decision"],
             "fields": result.get("fields", {}),
@@ -273,6 +275,7 @@ async def ingest_audit(req: IngestRequest, org: dict = Depends(require_org)) -> 
         )
         recent_audits.appendleft({
             "action_id": result["action_id"],
+            "org_id": org_id,
             "decision": result["decision"],
             "agent_decision": result["agent_decision"],
             "fields": req.fields,
@@ -327,7 +330,8 @@ async def ingest_audit_x402(req: X402IngestRequest) -> dict:
             req.fields, req.reasoning_trace, batch_store, tenant_store,
         )
         recent_audits.appendleft({
-            "action_id": result["action_id"], "decision": result["decision"],
+            "action_id": result["action_id"], "org_id": req.org_id,
+            "decision": result["decision"],
             "agent_decision": result["agent_decision"],
             "fields": req.fields,
             "agent_type_id": tenant_store.get_agent_display_name(req.org_id, req.agent_id) or req.agent_id,
@@ -554,16 +558,32 @@ async def _attempt_decryption(ipfs_cid: str, x_auditor_key: str | None, action_i
     return section
 
 
+@app.get("/api/orgs")
+async def list_orgs() -> dict:
+    """
+    List onboarded org_ids for the dashboard org filter.
+
+    Returns the exact stored casing (org_ids are case-sensitive and never
+    normalized), so the frontend selector can pass them back verbatim.
+    """
+    return {"orgs": [o["org_id"] for o in tenant_store.list_orgs()]}
+
+
 @app.get("/api/dashboard", response_model=DashboardResponse)
-async def dashboard() -> DashboardResponse:
+async def dashboard(org_id: str | None = None) -> DashboardResponse:
     """
     Return aggregate stats, recent audit history, and current batcher state.
 
-    Stats are computed from audits run since the server started.
-    Batcher state (pending_leaves_count, last_anchor_batch_id) reflects
-    the live SQLite store and survives server restarts.
+    Stats are computed from audits run since the server started. Pass
+    ?org_id=<exact org_id> to scope the feed and stats to one tenant
+    (case-sensitive, must match the stored org_id). Omit it for all orgs.
+
+    Batcher state (pending_leaves_count, last_anchor_batch_id) is global —
+    anchoring is a shared mixed stream — so it is not org-scoped.
     """
     audits = list(recent_audits)
+    if org_id:
+        audits = [a for a in audits if a.get("org_id") == org_id]
     total = len(audits)
     approved = sum(1 for a in audits if a["decision"] == "approved")
     rejected = total - approved
@@ -584,12 +604,16 @@ async def dashboard() -> DashboardResponse:
 
 
 @app.get("/api/export/csv")
-async def export_csv():
+async def export_csv(org_id: str | None = None):
     """
     Download audit history as a CSV file.
 
-    Exports all audits stored in the current session's in-memory store.
+    Exports audits from the current session's in-memory store. Pass
+    ?org_id=<exact org_id> to scope the export to one tenant (matches the
+    dashboard filter); omit it to export all orgs.
     """
+    rows = [a for a in recent_audits if not org_id or a.get("org_id") == org_id]
+
     output = io.StringIO()
     fieldnames = [
         "action_id", "timestamp", "agent", "fields",
@@ -598,7 +622,7 @@ async def export_csv():
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
 
-    for audit in recent_audits:
+    for audit in rows:
         writer.writerow({
             "action_id": audit["action_id"],
             "timestamp": audit["timestamp"],
