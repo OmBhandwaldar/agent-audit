@@ -7,26 +7,32 @@ How a single agent decision becomes a tamper-evident, independently verifiable o
 ## System Overview
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│  Customer's own agent (any stack)         React UI (Vercel)          │
-│  via SDK: @audit.capture / audit()        onboard · dashboard ·      │
-│                                           verify · built-in demo     │
-└──────────┬───────────────────────────────────────────┬──────────────┘
-           │ POST /v1/audit       (Bearer API key)      │
-           │ POST /v1/audit/x402  (USDC) ──▶ x402 facilitator
-           ▼                                            ▼
-   ┌──────────────────────────────────────────────────────────┐
-   │                FastAPI Backend (Railway)                  │
-   │  require_org (API key) · Tenant store (orgs / agents /    │
-   │  policies · per-org keys) · ingest · batcher · verify     │
-   └─┬────────────────┬───────────────────────────┬───────────┘
-     │                │                           │
-     ▼                ▼                           ▼
- ┌──────────┐  ┌──────────────┐          ┌──────────────────┐
- │ AES-GCM  │─▶│  Pinata IPFS │          │  Algorand        │
- │ per-org  │  │  (ciphertext)│          │  PolicyContract  │
- │   key    │  └──────────────┘          │  AnchorContract  │
- └──────────┘                            └──────────────────┘
+   ┌────────────────────────────────────┐   ┌────────────────────────────────────┐
+   │   Customer's own agent (any stack)  │   │          React UI (Vercel)          │
+   │   SDK: @audit.capture / audit()     │   │    onboard · dashboard · verify     │
+   └──────────────────┬──────────────────┘   └──────────────────┬──────────────────┘
+                      │                                          │
+      POST /v1/audit (Bearer key)              /v1/onboard · /api/dashboard · /api/verify
+      POST /v1/audit/x402 ─(USDC)─┐                              │
+                      │           ▼                              │
+                      │   ┌───────────────────┐                 │
+                      │   │  x402 facilitator  │                 │
+                      │   │ (settles payment)  │                 │
+                      │   └───────────────────┘                 │
+                      ▼                                          ▼
+   ┌──────────────────────────────────────────────────────────────────────────────┐
+   │                          FastAPI Backend (Railway)                             │
+   │   require_org ─▶ Tenant store (orgs · agents · rules · per-org keys)            │
+   │   ingest: encrypt (per-org key) → IPFS → policy check → batch                   │
+   │   anchor: Merkle root → AnchorContract        verify: proof + decrypt           │
+   └──────────────────┬─────────────────────────────────────┬───────────────────────┘
+                      │ ciphertext                           │ policy check + Merkle root
+                      ▼                                       ▼
+            ┌──────────────────┐                   ┌──────────────────────┐
+            │   Pinata IPFS    │                   │       Algorand        │
+            │   (ciphertext)   │                   │    PolicyContract     │
+            └──────────────────┘                   │    AnchorContract     │
+                                                   └──────────────────────┘
 ```
 
 ---
