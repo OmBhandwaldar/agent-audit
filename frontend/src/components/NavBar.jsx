@@ -14,7 +14,7 @@ const NAV_LINKS = [
   { label: "How it Works", to: "#how-it-works",  hash: true  },
   { label: "Dashboard",    to: "/dashboard",     hash: false },
   { label: "Onboard",      to: "/onboard",       hash: false },
-  { label: "Integrate",    to: "/integrate",     hash: false },
+  { label: "Integrate",    to: "#install",       hash: true  },
 ]
 
 function NavBar({ onEnterApp }) {

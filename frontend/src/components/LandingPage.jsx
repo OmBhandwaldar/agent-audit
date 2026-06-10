@@ -237,12 +237,12 @@ const INSTALL_COMMANDS = {
     unix:    `curl -X POST https://api.agentaudit.io/v1/audit \\\n  -H "Authorization: Bearer aa_<your_api_key>" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "agent_id": "agt_<your_agent>",\n    "action": "<action_performed>",\n    "decision": "<agent_decision>",\n    "fields": { "field_1": <value_1>, "field_2": <value_2> }\n  }'`,
   },
   "SDK": {
-    windows: `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\naudit.audit(\n    agent_id="agt_<your_agent>",\n    action="<action_performed>",\n    decision="<agent_decision>",\n    fields={"field_1": <value_1>, "field_2": <value_2>},\n)`,
-    unix:    `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\naudit.audit(\n    agent_id="agt_<your_agent>",\n    action="<action_performed>",\n    decision="<agent_decision>",\n    fields={"field_1": <value_1>, "field_2": <value_2>},\n)`,
+    windows: `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n# pay-per-call? swap to AuditClient(org_id="<your_org>", x402_mnemonic="...")\n\naudit.audit(\n    agent_id="agt_<your_agent>",\n    action="<action_performed>",\n    decision="<agent_decision>",\n    fields={"field_1": <value_1>, "field_2": <value_2>},\n)`,
+    unix:    `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n# pay-per-call? swap to AuditClient(org_id="<your_org>", x402_mnemonic="...")\n\naudit.audit(\n    agent_id="agt_<your_agent>",\n    action="<action_performed>",\n    decision="<agent_decision>",\n    fields={"field_1": <value_1>, "field_2": <value_2>},\n)`,
   },
   "Middleware/Decorator": {
-    windows: `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\n@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")\ndef decide(...):\n    # your agent's own logic\n    return {"decision": "<agent_decision>", "fields": {"field_1": <value_1>, "field_2": <value_2>}}`,
-    unix:    `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n\n@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")\ndef decide(...):\n    # your agent's own logic\n    return {"decision": "<agent_decision>", "fields": {"field_1": <value_1>, "field_2": <value_2>}}`,
+    windows: `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n# pay-per-call? swap to AuditClient(org_id="<your_org>", x402_mnemonic="...")\n\n@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")\ndef decide(...):\n    # your agent's own logic\n    return {"decision": "<agent_decision>", "fields": {"field_1": <value_1>, "field_2": <value_2>}}`,
+    unix:    `from agentaudit import AuditClient\n\naudit = AuditClient(api_key="aa_<your_api_key>")\n# pay-per-call? swap to AuditClient(org_id="<your_org>", x402_mnemonic="...")\n\n@audit.capture(agent_id="agt_<your_agent>", action="<action_performed>")\ndef decide(...):\n    # your agent's own logic\n    return {"decision": "<agent_decision>", "fields": {"field_1": <value_1>, "field_2": <value_2>}}`,
   },
 }
 
@@ -268,7 +268,7 @@ function InstallSection() {
   }
 
   return (
-    <section className="py-20 bg-[#0e0e0e]">
+    <section id="install" className="py-20 bg-[#0e0e0e] scroll-mt-24">
       <div className="max-w-3xl mx-auto px-6 md:px-12">
 
         {/* Section label */}
@@ -376,8 +376,33 @@ function InstallSection() {
           </div>
         </div>
 
+        {/* What you get back — the on-chain proof */}
+        <div className="mt-6 rounded-xl overflow-hidden border border-[#2a2a2a] bg-[#131313]">
+          <div className="flex items-center justify-between px-4 py-3 bg-[#1a1919] border-b border-[#252525]">
+            <span className="font-mono text-[11px] tracking-wider uppercase text-[#767575]">
+              Response · what you get back
+            </span>
+            <span className="text-[10px] font-mono text-[#26fedc] border border-[#26fedc]/30 rounded px-1.5 py-0.5">
+              on-chain proof
+            </span>
+          </div>
+          <div className="px-6 py-5 font-mono text-[12.5px] leading-relaxed text-white overflow-x-auto whitespace-pre">
+{`{
+  "action_id":      "1780562533_3364",
+  "decision":       "approved",          // on-chain, authoritative
+  "asa_minted":     true,                // compliance receipt
+  "policy_result":  "pass:onchain | pass:attested",
+  "ipfs_cid":       "QmUrXohg1AXQ…",     // encrypted evidence
+  "algorand_tx_id": "GO4XEN3Z2WGS…"      // verify on explorer
+}`}
+          </div>
+        </div>
+
         {/* Footnote */}
-        <p className="text-center text-[10px] font-mono text-[#484847] mt-4 tracking-wider uppercase">
+        <p className="text-center text-[11px] text-[#767575] mt-5 max-w-md mx-auto leading-relaxed">
+          The on-chain decision is authoritative; it can override the agent's own.
+        </p>
+        <p className="text-center text-[10px] font-mono text-[#484847] mt-3 tracking-wider uppercase">
           Algorand · IPFS · Agent runtime
         </p>
 
