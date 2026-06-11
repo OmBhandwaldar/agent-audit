@@ -7,12 +7,13 @@
  */
 
 import { useState, useEffect } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import NavBar from "./NavBar"
 
 /* ─── Hero ────────────────────────────────────────────────────────────────── */
 
-function HeroSection({ onEnterApp }) {
+function HeroSection() {
+  const navigate = useNavigate()
   return (
     <section className="relative min-h-[88vh] flex flex-col items-center justify-center pt-28 pb-24 overflow-hidden bg-[#0e0e0e]">
 
@@ -46,12 +47,12 @@ function HeroSection({ onEnterApp }) {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button
-            onClick={onEnterApp}
+            onClick={() => navigate("/onboard")}
             className="w-full sm:w-auto bg-[#ff4f00] text-[#591800] px-8 py-4 rounded-lg font-bold text-base headline
               hover:scale-95 active:opacity-80 transition-all duration-200
               shadow-[0_8px_30px_-8px_rgba(255,79,0,0.45)]"
           >
-            Initialize Audit
+            Onboard Now
           </button>
           <a
             href="#how-it-works"
@@ -413,7 +414,8 @@ function InstallSection() {
 
 /* ─── CTA ─────────────────────────────────────────────────────────────────── */
 
-function CTASection({ onEnterApp }) {
+function CTASection() {
+  const navigate = useNavigate()
   return (
     <section className="py-24 px-6 md:px-12 max-w-screen-2xl mx-auto">
       <div className="bg-gradient-to-br from-[#201f1f] to-[#1a1919] rounded-[2rem] p-10 md:p-20 relative overflow-hidden text-center border border-[#484847]/12">
@@ -438,12 +440,12 @@ function CTASection({ onEnterApp }) {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-5 relative z-10">
           <button
-            onClick={onEnterApp}
+            onClick={() => navigate("/onboard")}
             className="w-full sm:w-auto bg-[#ff4f00] text-[#591800] px-10 py-4 rounded-lg font-bold text-base headline
               hover:scale-95 active:opacity-80 transition-all duration-200
               shadow-[0_8px_30px_-8px_rgba(255,79,0,0.45)]"
           >
-            Initialize Audit Now
+            Onboard Now
           </button>
           {/* <button className="text-white hover:text-[#ff4f00] transition-colors font-bold text-base headline flex items-center gap-2">
             Read Case Studies
@@ -516,16 +518,16 @@ function Footer() {
 
 /* ─── Root export ─────────────────────────────────────────────────────────── */
 
-function LandingPage({ onEnterApp }) {
+function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0e0e0e] text-white">
-      <NavBar    onEnterApp={onEnterApp} />
+      <NavBar />
       <main className="flex-1">
-        <HeroSection onEnterApp={onEnterApp} />
+        <HeroSection />
         <WhatItDoes />
         <HowItWorks />
         <InstallSection />
-        <CTASection  onEnterApp={onEnterApp} />
+        <CTASection />
       </main>
       <Footer />
     </div>

@@ -17,7 +17,7 @@ const NAV_LINKS = [
   { label: "Integrate",    to: "#install",       hash: true  },
 ]
 
-function NavBar({ onEnterApp }) {
+function NavBar() {
   const navigate   = useNavigate()
   const [scrolled, setScrolled] = useState(false)
 
@@ -27,7 +27,8 @@ function NavBar({ onEnterApp }) {
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
 
-  const handleLogin = onEnterApp ?? (() => navigate("/app"))
+  // "Log in" goes to the dashboard, not the built-in demo chat (which is a backup only).
+  const handleLogin = () => navigate("/dashboard")
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-4 px-4 pointer-events-none">

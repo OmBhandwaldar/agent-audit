@@ -40,8 +40,7 @@ function AppShell() {
 }
 
 function LandingGate() {
-  const navigate = useNavigate()
-  return <LandingPage onEnterApp={() => navigate("/app")} />
+  return <LandingPage />
 }
 
 function App() {
