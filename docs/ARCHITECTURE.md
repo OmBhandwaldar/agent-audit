@@ -6,6 +6,8 @@ How a single agent decision becomes a tamper-evident, independently verifiable o
 
 ## System Overview
 
+![AgentAudit architecture](architecture.png)
+
 ```
    ┌────────────────────────────────────┐   ┌────────────────────────────────────┐
    │   Customer's own agent (any stack)  │   │          React UI (Vercel)          │

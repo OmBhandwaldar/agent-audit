@@ -2,7 +2,7 @@
 
 Verifiable compliance infrastructure for autonomous AI agents.
 
-**Live Demo:** https://agent-audit-nu.vercel.app/
+**Live Demo:** https://agentaudit.tech
 
 **Demo Video:** https://youtu.be/lz71ab2ZaP0
 
@@ -15,8 +15,8 @@ Verifiable compliance infrastructure for autonomous AI agents.
 
 ## Documentation
 
-- [Architecture](ARCHITECTURE.md) — system layers, three pipelines (decision / anchor / verification), trust boundaries, failure modes
-- [Smart Contracts](CONTRACTS.md) — PolicyContract + AnchorContract reference: state, methods, ASA setup, Merkle leaf format, deployment order
+- [Architecture](docs/ARCHITECTURE.md) — system layers, three pipelines (decision / anchor / verification), trust boundaries, failure modes
+- [Smart Contracts](docs/CONTRACTS.md) — PolicyContract + AnchorContract reference: state, methods, ASA setup, Merkle leaf format, deployment order
 - [Setup Guide](#how-to-run-locally) — local installation and first-time setup
 
 ---
