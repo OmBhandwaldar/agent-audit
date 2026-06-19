@@ -243,7 +243,7 @@ POLICY_APP_ID=your_policy_contract_app_id
 ANCHOR_APP_ID=your_anchor_contract_app_id
 COMPLIANCE_ASA_ID=your_asa_id
 
-# IPFS / Pinata
+# IPFS/Pinata
 PINATA_JWT=your_pinata_jwt
 
 # AI Agent
