@@ -40,7 +40,7 @@ def decide_claim(claim_amount: int, hospital: str) -> tuple[str, list]:
 
 
 def main() -> None:
-    # ── AgentAudit: connect (uncomment ONE line after onboarding) ─────────────────
+    # ── AgentAudit:connect (uncomment ONE line after onboarding) ─────────────────
     # from agentaudit import AuditClient
     # audit = AuditClient(api_key="aa_PASTE_YOUR_KEY")                                  # subscription
     # audit = AuditClient(org_id="medi_trust", x402_mnemonic="<payer 25 words>")        # OR pay-per-call (x402)
