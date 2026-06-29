@@ -50,7 +50,7 @@ def main() -> None:
         decision, trace = decide_claim(claim_amount, hospital)
         print(f"claim={claim_amount:>7}  hospital={hospital:9}  ->  {decision}")
 
-        # ── AgentAudit: log this decision (uncomment after onboarding)────────────
+        # ── AgentAudit: log this decision (uncomment after onboarding) ────────────
         # r = audit.audit(
         #     agent_id="claims_agent",
         #     action="approve_claim",
